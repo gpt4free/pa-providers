@@ -97,10 +97,10 @@ def _fetch_worker_servers() -> dict[str, list[str]]:
         payload = resp.json()
         data = payload.get("data", {})
         if isinstance(data, dict) and data:
-            debug.log(f"SwarmWorker: fetched {len(data)} servers from worker cache")
+            debug.log(f"Swarm: fetched {len(data)} servers from worker cache")
             return data
     except Exception as e:
-        debug.error(f"SwarmWorker: /servers/all failed: {e}")
+        debug.error(f"Swarm: /servers/all failed: {e}")
     return {}
 
 
@@ -114,7 +114,7 @@ def _probe_seeds(seeds: list[str]) -> dict[str, list[str]]:
             if result:
                 url, models = result
                 alive[url] = models
-    debug.log(f"SwarmWorker: {len(alive)}/{len(seeds)} seed servers alive")
+    debug.log(f"Swarm: {len(alive)}/{len(seeds)} seed servers alive")
     return alive
 
 
