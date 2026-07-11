@@ -56,7 +56,6 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                 cls.api_endpoint, json=payload, proxy=proxy
             ) as response:
                 response.raise_for_status()
-                last_usage = None
                 async for chunk in response.iter_lines():
                     if not chunk:
                         continue
@@ -68,7 +67,6 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                         break
                     try:
                         json_data = json.loads(data)
-                        yield json_data
                         if json_data.get("usage"):
                             yield Usage.from_dict(json_data["usage"])
                         choices = json_data.get("choices")
