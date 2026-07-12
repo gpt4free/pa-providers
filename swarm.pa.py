@@ -13,6 +13,7 @@ import requests as _requests
 
 from g4f.Provider.template import OpenaiTemplate
 from g4f.errors import BadRequestError
+from g4f.providers.cache import FileStorage
 from g4f.typing import AsyncResult, Messages
 from g4f import debug
 
@@ -123,13 +124,26 @@ def _discover() -> dict[str, list[str]]:
     Build the full alive-servers map.
 
     Strategy:
-    1. Fetch pre-discovered servers from the CF Worker cache (/servers/all).
-    2. Also probe the seed list directly in parallel.
-    3. Merge — direct probe results overwrite worker cache for same URL.
+    1. Check the local FileStorage cache (TTL-bucketed key).
+    2. Fetch pre-discovered servers from the CF Worker cache (/servers/all).
+    3. Also probe the seed list directly in parallel.
+    4. Merge — direct probe results overwrite worker cache for same URL.
+    5. Persist the merged map back to FileStorage.
     """
+    cache_key = f"swarm_worker_servers_{int(time.time() // _CACHE_TTL)}"
+    storage = FileStorage()
+    cached = storage.get(cache_key)
+    if cached is not None:
+        debug.log(f"Swarm: using cached server map ({len(cached)} servers)")
+        return cached
     worker_servers = _fetch_worker_servers()
     seed_alive = _probe_seeds(_SEED_SERVERS)
-    return {**worker_servers, **seed_alive}
+    result = {**worker_servers, **seed_alive}
+    try:
+        storage.set(cache_key, result)
+    except Exception as e:
+        debug.error(f"Swarm: failed to persist server map cache: {e}")
+    return result
 
 
 def _build_model_map(alive: dict[str, list[str]]) -> dict[str, list[str]]:
