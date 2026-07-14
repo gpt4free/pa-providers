@@ -217,13 +217,14 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                 content_type = response.headers.get("content-type", "")
                 is_sse = "text/event-stream" in content_type
 
-                # If not SSE by header, read the body and check if it
-                # looks like SSE (starts with "data:").
+                # If not SSE by header, try to read lines; if the first
+                # meaningful line starts with "data:", treat as SSE.
                 if not is_sse:
+                    # Read entire body as text (non-streaming JSON)
                     body = await response.text()
 
+                    # Check if body looks like SSE anyway
                     if body.lstrip().startswith("data:"):
-                        # Body is SSE without proper content-type header
                         is_sse = True
                         sse_lines = body.splitlines()
                     else:
@@ -258,6 +259,8 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                             yield Usage.from_dict(json_data["usage"])
 
                         # LEVEL 3 — deepest content field
+                        # Supports: response, content, text, message,
+                        #           choices[0].delta.content, choices[0].message.content
                         content = _extract_content(json_data)
 
                         if content:
@@ -267,19 +270,8 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                                 yield content
                         return
 
-                # ---- SSE streaming response ----------------------------
-                if "sse_lines" in locals():
-                    # Pre-read SSE body (no proper content-type header)
-                    line_source = sse_lines
-                    for line in line_source:
-                        if not line.startswith("data: "):
-                            continue
-                        data = line[6:]
-                        if data == "[DONE]":
-                            break
-                        yield from _process_sse_line(data, level)
-                else:
-                    async for chunk in response.iter_lines():
+                # Use the streaming path
+                async for chunk in response.iter_lines():
                     if not chunk:
                         continue
                     line = chunk.decode("utf-8")
