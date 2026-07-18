@@ -1,15 +1,21 @@
 from typing import Any
 
-from aiohttp import ClientSession
 from g4f.Provider.base_provider import AsyncGeneratorProvider, ProviderModelMixin
+from g4f.Provider.helper import format_prompt
+from g4f.requests import StreamSession
 from g4f.typing import AsyncResult, Messages
 
 
 class Provider(AsyncGeneratorProvider, ProviderModelMixin):
-    label = "MIKLIUM"
+    label = "Miklium"
     url = "https://miklium.vercel.app"
-    api_endpoint = "https://miklium.vercel.app/api/chatbot"
+    api_endpoint = "/api/chatbot"
+
     working = True
+    needs_auth = False
+    supports_stream = False
+    supports_system_message = True
+    supports_message_history = True
 
     default_model = "miklium"
     models = ["miklium", "personalityless", "male", "female", "all"]
@@ -25,29 +31,30 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
         model = cls.get_model(model)
 
         headers = {
-            "accept": "application/json",
+            "accept": "*/*",
+            "accept-language": "en-US,en;q=0.9",
             "content-type": "application/json",
-            "origin": "https://miklium.vercel.app",
-            "referer": "https://miklium.vercel.app/",
+            "origin": cls.url,
+            "referer": f"{cls.url}/",
         }
 
-        # Extract last user message as the chatbot input
-        user_messages = [m for m in messages if m["role"] == "user"]
-        message = user_messages[-1]["content"] if user_messages else ""
+        prompt = format_prompt(messages)
 
-        payload = {
-            "message": message,
-            "response_stacking": 4,
+        data_payload = {
+            "message": prompt,
+            "response_stacking": kwargs.get("response_stacking", 4),
             "personality": model,
         }
 
-        async with ClientSession(headers=headers) as session:
+        async with StreamSession(headers=headers, impersonate="chrome") as session:
             async with session.post(
-                cls.api_endpoint, json=payload, proxy=proxy
+                f"{cls.url}{cls.api_endpoint}", json=data_payload, proxy=proxy
             ) as response:
                 response.raise_for_status()
-                data = await response.json()
-                if data.get("success") == "true" or data.get("success") is True:
-                    yield data.get("response", "")
+                json_data = await response.json()
+
+                if str(json_data.get("success")).lower() == "true":
+                    yield json_data.get("response", "")
                 else:
-                    raise RuntimeError(data.get("error", "Unknown error from MIKLIUM API"))
+                    error_msg = json_data.get("error", "Unknown error")
+                    raise RuntimeError(f"Miklium error: {error_msg}")
