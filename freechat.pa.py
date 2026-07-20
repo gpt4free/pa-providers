@@ -13,8 +13,6 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     api_endpoint = "https://llmproxy.org/api/chat.php"
     working = True
     supports_stream = True
-    supports_system_message = True
-    supports_message_history = True
 
     default_model = "v3"
     models = ["v3"]
@@ -67,8 +65,7 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                         break
                     try:
                         json_data = json.loads(data)
-                        yield json_data
-                        if json_data.get("usage"):
+                       if json_data.get("usage"):
                             yield Usage.from_dict(json_data["usage"])
                         choices = json_data.get("choices")
                         if not choices:
