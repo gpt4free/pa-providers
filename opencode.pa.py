@@ -33,7 +33,7 @@ class Provider(OpenaiTemplate):
     }
 
     @classmethod
-    def create_async_generator(
+    async def create_async_generator(
         cls,
         model: str,
         messages: Messages,
@@ -54,10 +54,11 @@ class Provider(OpenaiTemplate):
             ),
             "Authorization": f"Bearer ",
         }
-        return super().create_async_generator(
+        async for chunk in super().create_async_generator(
             model=model,
             messages=messages,
             stream=stream,
             headers=headers,
             **kwargs,
-        )
+        ):
+            yield chunk

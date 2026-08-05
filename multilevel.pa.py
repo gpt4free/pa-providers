@@ -149,12 +149,9 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     url = "https://example.com"
     api_endpoint = "https://llmproxy.org/api/chat.php"
     working = True
-    supports_stream = True
-    supports_system_message = True
-    supports_message_history = True
 
-    default_model = "v3"
-    models = ["v3"]
+    default_model = "v3#level=3"
+    models = ["v3", "v3#level=1", "v3#level=2", "v3#level=3"]
 
     @classmethod
     async def create_async_generator(

@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 from aiohttp import ClientSession
@@ -9,9 +10,10 @@ from g4f.typing import AsyncResult, Messages
 class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     label = "HeckAI"
     url = "https://heck.ai"
-    session_endpoint = "https://api.heckai.weight-wave.com/api/ha/v1/session/create"
     chat_endpoint = "https://api.heckai.weight-wave.com/api/ha/v1/chat"
-    working = True
+    # API became a proxy to OpenRouter and returns 402 Payment Required
+    # (free credit pool exhausted). Re-enable when credits are available.
+    working = False
 
     default_model = "openai/gpt-5.4-mini"
     models = [
@@ -39,56 +41,40 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
 
         headers = {
             "accept": "*/*",
-            "accept-language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-            "authorization": "",
-            "cache-control": "no-cache",
             "content-type": "application/json",
-            "pragma": "no-cache",
             "origin": "https://heck.ai",
             "referer": "https://heck.ai/",
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "cross-site",
         }
 
-        # Extract last user question and previous Q&A from history
+        # Extract system, user, and assistant messages
+        system_messages = [m for m in messages if m["role"] == "system"]
         user_messages = [m for m in messages if m["role"] == "user"]
         assistant_messages = [m for m in messages if m["role"] == "assistant"]
 
+        # Concatenate system messages to the question
+        system_content = "\n".join(m["content"] for m in system_messages)
         question = user_messages[-1]["content"] if user_messages else ""
+        if system_content:
+            question = f"{system_content}\n\n{question}"
+
         previous_question = user_messages[-2]["content"] if len(user_messages) >= 2 else None
         previous_answer = assistant_messages[-1]["content"] if assistant_messages else None
 
-        if conversation is None:
-            conversation = JsonConversation()
+        # Generate session ID client-side (no server session creation needed)
+        session_id = str(uuid.uuid4())
+
+        chat_payload = {
+            "model": model,
+            "question": question,
+            "language": "English",
+            "sessionId": session_id,
+            "previousQuestion": previous_question,
+            "previousAnswer": previous_answer,
+            "imgUrls": [],
+            "superSmartMode": False,
+        }
 
         async with ClientSession(headers=headers) as session:
-            if not getattr(conversation, "session_id", None):
-                # Create a new session if no session_id is provided
-                session_payload = {"title": question[:100] if question else "hi"}
-                async with session.post(
-                    cls.session_endpoint, json=session_payload, proxy=proxy
-                ) as resp:
-                    resp.raise_for_status()
-                    session_data = await resp.json()
-                    conversation.session_id = (
-                        session_data.get("sessionId")
-                        or session_data.get("id")
-                        or session_data.get("data", {}).get("sessionId")
-                    )
-            yield conversation
-
-            # Step 2: Send chat request and stream response
-            chat_payload = {
-                "model": model,
-                "question": question,
-                "language": "English",
-                "sessionId": conversation.session_id,
-                "previousQuestion": previous_question,
-                "previousAnswer": previous_answer,
-                "imgUrls": [],
-                "superSmartMode": False,
-            }
             async with session.post(
                 cls.chat_endpoint, json=chat_payload, proxy=proxy
             ) as response:
@@ -99,10 +85,21 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
                     if not line.startswith("data: "):
                         continue
                     data = line[6:]
+                    # Skip non-answer SSE markers
+                    if data in (
+                        "[REASON_START]",
+                        "[REASON_DONE]",
+                        "[RELATE_Q_START]",
+                        "[RELATE_Q_DONE]",
+                        "[DONE]",
+                    ):
+                        continue
                     if data == "[ANSWER_START]":
                         in_answer = True
                         continue
                     if data == "[ANSWER_DONE]":
+                        break
+                    if data == "[ERROR]":
                         break
                     if in_answer and data:
                         yield data
