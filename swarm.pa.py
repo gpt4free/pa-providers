@@ -20,43 +20,7 @@ from g4f import debug
 # ---------------------------------------------------------------------------
 # Worker seed list (nip.io public Ollama instances used by the CF Worker)
 # ---------------------------------------------------------------------------
-_SEED_LIST = [
-    "http://172.168.53.235.nip.io",
-    "http://143.223.252.208.nip.io",
-    "https://81.151.201.23.nip.io",
-    "http://20.118.15.50.nip.io",
-    "http://111.206.235.125.nip.io:8080",
-    "http://93.87.60.133.nip.io:30005",
-    "http://42.2.170.244.nip.io",
-    "http://110.86.160.115.nip.io:6001",
-    "http://8.141.151.0.nip.io:8080",
-    "http://83.24.140.56.nip.io:8080",
-    "http://178.18.242.28.nip.io:8080",
-    "http://149.118.157.59.nip.io:8080",
-    "http://129.150.44.79.nip.io:8080",
-    "http://220.72.100.236.nip.io:8080",
-    "http://101.200.3.110.nip.io:8080",
-    "http://161.153.3.209.nip.io:8080",
-    "http://144.24.219.208.nip.io:8080",
-    "http://46.37.122.40.nip.io:8080",
-    "http://212.36.87.58.nip.io:8080",
-    "http://156.146.235.114.nip.io:5001",
-    "http://218.147.76.163.nip.io:5001",
-    "http://99.6.167.132.nip.io:5001",
-    "http://108.181.152.142.nip.io:5001",
-    "http://35.138.176.97.nip.io:5001",
-    "https://lcpp.demetrisamantium.com",
-    "https://118.167.9.98.nip.io:2053",
-    "https://kobold.asozial.org",
-    "http://108.210.175.159.nip.io:5001",
-    "http://173.248.19.236.nip.io:5001",
-    "http://82.66.194.162.nip.io:5001",
-    "http://73.185.144.207.nip.io:5001",
-    "http://50.53.208.218.nip.io:5001",
-    "http://185.155.18.66.nip.io",
-]
-
-_SEED_SERVERS = list(dict.fromkeys(_SEED_LIST))  # deduplicate, preserve order
+_SEED_URL = "https://raw.githubusercontent.com/gpt4free/g4f.dev/refs/heads/main/dist/js/swarm_seeds.json"
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -66,6 +30,20 @@ _PROBE_TIMEOUT = 5
 _TTFT_TIMEOUT = 10.0
 _PROBE_WORKERS = 20
 _CACHE_TTL = 3600  # seconds
+
+
+def _fetch_seed_servers() -> list[str]:
+    """Fetch the seed list from the remote JSON, deduplicated, order-preserved."""
+    try:
+        resp = _requests.get(_SEED_URL, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        seeds = data if isinstance(data, list) else data.get("seeds", [])
+        seeds = [s for s in seeds if isinstance(s, str) and s]
+        return list(dict.fromkeys(seeds))
+    except Exception as e:
+        debug.error(f"Swarm: failed to fetch seed list from {_SEED_URL}: {e}")
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +115,7 @@ def _discover() -> dict[str, list[str]]:
         debug.log(f"Swarm: using cached server map ({len(cached)} servers)")
         return cached
     worker_servers = _fetch_worker_servers()
-    seed_alive = _probe_seeds(_SEED_SERVERS)
+    seed_alive = _probe_seeds(_fetch_seed_servers())
     result = {**worker_servers, **seed_alive}
     try:
         storage.set(cache_key, result)
