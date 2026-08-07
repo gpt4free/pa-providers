@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import secrets
 from typing import Any
 
 from aiohttp import ClientSession
@@ -21,10 +20,6 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     url = "https://chat.jollyai.online"
     api_endpoint = "https://jollygenapi.space/ai/chat-guest"
     working = True
-    needs_auth = False
-    supports_stream = True
-    supports_system_message = True
-    supports_message_history = True
 
     default_model = "jolly-rp"
     models = ["jolly-rp"]
