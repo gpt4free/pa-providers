@@ -55,6 +55,7 @@ ChatAddons.register({
                 return;
             }
             await this._injectPanel();
+            this._applyConfigToInputs();
             this._renderTools();
         })();
     },
@@ -213,8 +214,19 @@ ChatAddons.register({
                             <input type="checkbox" id="pa-coding-filter" checked> <span>nur Code-Tools</span>
                         </label>
                         <button class="pa-coding-errors" id="pa-coding-errors" title="Browser-Fehler als Kontext senden">🐛 <span id="pa-coding-errorcount">0</span></button>
+                        <button class="pa-coding-fullsize" id="pa-coding-fullsize" title="Volle Größe (Chat-Body ersetzen)">⛶</button>
                         <button class="pa-coding-toggle" id="pa-coding-toggle" title="Tools anzeigen/verbergen">🧰 <span id="pa-coding-toolcount">0</span></button>
                         <button class="pa-coding-clear" id="pa-coding-clear" title="Verlauf löschen">🗑️</button>
+                    </div>
+                    <div class="pa-coding-config">
+                        <label class="pa-coding-config-field" title="Basis-URL des OpenAI-kompatiblen Endpunkts (z. B. http://localhost:8090/api/pa:6455e06a)">
+                            <span>Base URL</span>
+                            <input type="text" id="pa-coding-baseurl" placeholder="http://localhost:8090/api/pa:6455e06a">
+                        </label>
+                        <label class="pa-coding-config-field" title="Modell (leer = Modell aus dem Haupt-Chat)">
+                            <span>Modell</span>
+                            <input type="text" id="pa-coding-model" placeholder="auto (Chat-Modell)">
+                        </label>
                     </div>
                     <div class="pa-coding-body" id="pa-coding-body">
                         <div class="pa-coding-tools" id="pa-coding-tools"></div>
@@ -245,6 +257,9 @@ ChatAddons.register({
         const errorsBtn = panel.querySelector('#pa-coding-errors');
         const filterCb = panel.querySelector('#pa-coding-filter');
         const injectBtn = panel.querySelector('#pa-coding-inject');
+        const fullsizeBtn = panel.querySelector('#pa-coding-fullsize');
+        const baseUrlInput = panel.querySelector('#pa-coding-baseurl');
+        const modelInput = panel.querySelector('#pa-coding-model');
 
         input.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -267,6 +282,17 @@ ChatAddons.register({
         }
         filterCb.addEventListener('change', () => this._renderTools());
         injectBtn.addEventListener('click', () => this._injectSelection());
+        if (fullsizeBtn) {
+            fullsizeBtn.addEventListener('click', () => this.toggleFullSize());
+        }
+
+        // Config persistence
+        if (baseUrlInput) {
+            baseUrlInput.addEventListener('change', () => this._saveConfig({ baseUrl: baseUrlInput.value.trim() }));
+        }
+        if (modelInput) {
+            modelInput.addEventListener('change', () => this._saveConfig({ model: modelInput.value.trim() }));
+        }
 
         // Auto-grow textarea
         input.addEventListener('input', () => {
@@ -276,6 +302,62 @@ ChatAddons.register({
         // Update error count periodically
         this._updateErrorCount();
         setInterval(() => this._updateErrorCount(), 3000);
+    },
+
+    // ----------------------------------------------------------------
+    // Config (base URL + model) persistence
+    // ----------------------------------------------------------------
+    _loadConfig() {
+        if (this._config) return this._config;
+        try {
+            this._config = JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '{}') || {};
+        } catch (e) {
+            this._config = {};
+        }
+        return this._config;
+    },
+
+    _saveConfig(patch) {
+        const cfg = Object.assign({}, this._loadConfig(), patch);
+        this._config = cfg;
+        try { localStorage.setItem(this.STORAGE_KEY, JSON.stringify(cfg)); } catch (e) { /* ignore */ }
+        return cfg;
+    },
+
+    // Apply persisted config to the inputs after panel injection
+    _applyConfigToInputs() {
+        const cfg = this._loadConfig();
+        const panel = document.getElementById('pa-coding-panel');
+        if (!panel) return;
+        const baseUrlInput = panel.querySelector('#pa-coding-baseurl');
+        const modelInput = panel.querySelector('#pa-coding-model');
+        if (baseUrlInput && cfg.baseUrl) baseUrlInput.value = cfg.baseUrl;
+        if (modelInput && cfg.model) modelInput.value = cfg.model;
+    },
+
+    // ----------------------------------------------------------------
+    // Full-size toggle: replace the chat body area with the agent panel
+    // ----------------------------------------------------------------
+    toggleFullSize(force) {
+        const panel = document.getElementById('pa-coding-panel');
+        if (!panel) return false;
+        const chatBody = document.querySelector('.chat-body');
+        const btn = panel.querySelector('#pa-coding-fullsize');
+        const shouldFull = typeof force === 'boolean' ? force : !panel.classList.contains('pa-coding-fullsize-active');
+
+        if (shouldFull) {
+            panel.classList.add('pa-coding-fullsize-active');
+            this._fullSizeOrig = {
+                chatBodyDisplay: chatBody ? chatBody.style.display : '',
+            };
+            if (chatBody) chatBody.style.display = 'none';
+            if (btn) { btn.classList.add('active'); btn.title = 'Normale Größe (Chat-Body wieder zeigen)'; }
+        } else {
+            panel.classList.remove('pa-coding-fullsize-active');
+            if (chatBody) chatBody.style.display = this._fullSizeOrig?.chatBodyDisplay ?? '';
+            if (btn) { btn.classList.remove('active'); btn.title = 'Volle Größe (Chat-Body ersetzen)'; }
+        }
+        return shouldFull;
     },
 
     // ----------------------------------------------------------------
@@ -542,8 +624,11 @@ ChatAddons.register({
         let iter = 0;
         let full = '';
 
-        const provider = this._getSelectedProvider();
-        const model = this.DEFAULT_MODEL || this._getSelectedModel();
+        // Provider resolution: explicit base URL (if configured) else the
+        // main chat provider. Model: configured model or main chat model.
+        const cfg = this._loadConfig();
+        const provider = cfg.baseUrl ? cfg.baseUrl : this._getSelectedProvider();
+        const model = cfg.model || this.DEFAULT_MODEL || this._getSelectedModel();
 
         // Coding-tuned system prompt
         const sysPrompt = [
