@@ -144,7 +144,7 @@ ChatAddons.register({
     _countPhrases(texts) {
         const counts = new Map();
         const add = (phrase) => {
-            phrase = phrase.replace(/[|*<-\s#]+/g, ' ').trim();
+            phrase = phrase.replace(/[|*<-\s#=]+/g, ' ').trim();
             if (!phrase) return;
             const key = phrase.toLowerCase();
             counts.set(key, (counts.get(key) || 0) + 1);

@@ -19,7 +19,7 @@
 ChatAddons.register({
     id: 'workspace:pa-coding',
     name: 'Coding Agent',
-    version: '1.0.0',
+    version: '1.0.2',
     description: 'Coding-fokussierter Agent: schreibt, debuggt, refaktoriert und erklärt Code mit deinen MCP-Tools.',
     author: 'g4f',
     builtin: false,
@@ -193,7 +193,10 @@ ChatAddons.register({
     _injectPanel() {
         return new Promise((resolve) => {
             const tryInject = () => {
-                const anchor = document.querySelector('.input-area, .chat-input-area, #chat-input-area, main .bottom, .message-input-area, #userInput');
+                // Anchor inside the chat body itself so the panel can
+                // expand to fill it. Fall back to the input area.
+                const chatBody = document.querySelector('#chatBody, .chat-body');
+                const anchor = chatBody || document.querySelector('.input-area, .chat-input-area, #chat-input-area, main .bottom, .message-input-area, #userInput');
                 if (!anchor) {
                     setTimeout(tryInject, 400);
                     return;
@@ -336,26 +339,22 @@ ChatAddons.register({
     },
 
     // ----------------------------------------------------------------
-    // Full-size toggle: replace the chat body area with the agent panel
+    // Full-size toggle: make the agent panel cover the whole viewport.
+    // The chat body is only hidden when it does NOT contain the panel
+    // (otherwise hiding it would hide the panel itself).
     // ----------------------------------------------------------------
     toggleFullSize(force) {
         const panel = document.getElementById('pa-coding-panel');
         if (!panel) return false;
-        const chatBody = document.querySelector('.chat-body');
         const btn = panel.querySelector('#pa-coding-fullsize');
         const shouldFull = typeof force === 'boolean' ? force : !panel.classList.contains('pa-coding-fullsize-active');
 
         if (shouldFull) {
             panel.classList.add('pa-coding-fullsize-active');
-            this._fullSizeOrig = {
-                chatBodyDisplay: chatBody ? chatBody.style.display : '',
-            };
-            if (chatBody) chatBody.style.display = 'none';
-            if (btn) { btn.classList.add('active'); btn.title = 'Normale Größe (Chat-Body wieder zeigen)'; }
+            if (btn) { btn.classList.add('active'); btn.title = 'Normale Größe (Panel zurücksetzen)'; }
         } else {
             panel.classList.remove('pa-coding-fullsize-active');
-            if (chatBody) chatBody.style.display = this._fullSizeOrig?.chatBodyDisplay ?? '';
-            if (btn) { btn.classList.remove('active'); btn.title = 'Volle Größe (Chat-Body ersetzen)'; }
+            if (btn) { btn.classList.remove('active'); btn.title = 'Volle Größe (Chat-Body ausfüllen)'; }
         }
         return shouldFull;
     },
@@ -627,8 +626,10 @@ ChatAddons.register({
         // Provider resolution: explicit base URL (if configured) else the
         // main chat provider. Model: configured model or main chat model.
         const cfg = this._loadConfig();
-        const provider = cfg.baseUrl ? cfg.baseUrl : this._getSelectedProvider();
+        const hasBaseUrl = !!(cfg.baseUrl && cfg.baseUrl.trim());
+        const provider = hasBaseUrl ? 'custom' : this._getSelectedProvider();
         const model = cfg.model || this.DEFAULT_MODEL || this._getSelectedModel();
+        const clientOptions = hasBaseUrl ? { baseUrl: cfg.baseUrl.trim() } : {};
 
         // Coding-tuned system prompt
         const sysPrompt = [
@@ -646,23 +647,49 @@ ChatAddons.register({
 
         const msgs = [{ role: 'system', content: sysPrompt }, ...messages];
 
+        // Wird true, wenn ein API-Fehler bereits einmal ohne Tool-
+        // Definitionen erneut versucht wurde (verhindert Endlos-Retries).
+        let retriedWithoutTools = false;
+
         while (iter < MAX_ITER) {
             iter++;
 
-            const client = await window.createClient(provider, {});
-            const params = {
-                model: model || undefined,
-                messages: msgs,
-                tools: tools.length > 0 ? tools : undefined,
-                stream: true,
-            };
-            if (!params.model) delete params.model;
-            if (!params.tools) delete params.tools;
+            let client, params, stream;
+            try {
+                client = await window.createClient(provider, clientOptions);
+                params = {
+                    model: model || undefined,
+                    messages: msgs,
+                    tools: tools.length > 0 ? tools : undefined,
+                    stream: true,
+                };
+                if (!params.model) delete params.model;
+                if (!params.tools) delete params.tools;
+                stream = await client.chat.completions.create(params);
+            } catch (apiErr) {
+                // Der Stream-Aufruf ist fehlgeschlagen (z. B. weil der
+                // Provider Tool-Nachrichten ablehnt). Statt abzubrechen:
+                // Agenten informieren und ohne Tool-Definitionen weitermachen.
+                console.error('[pa-coding] API-Fehler im Agent-Loop', apiErr);
+                const apiErrText = (apiErr && apiErr.message) ? apiErr.message : String(apiErr);
+                if (!retriedWithoutTools && tools.length > 0) {
+                    retriedWithoutTools = true;
+                    tools = [];
+                    this._appendLog(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – erneuter Versuch ohne Tool-Definitionen…`, 'warn');
+                    msgs.push({ role: 'user', content: `[SYSTEM] Der API-Aufruf ist fehlgeschlagen (${apiErrText}). Du wirst ohne Tool-Definitionen fortgesetzt. Beantworte die Nutzerfrage möglichst vollständig und erkläre den Fehler, falls relevant.` });
+                    iter--;
+                    continue;
+                }
+                this._appendLog(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – Agent wird informiert.`, 'warn');
+                msgs.push({ role: 'user', content: `[SYSTEM] API-Fehler: ${apiErrText}. Bitte erkläre dem Nutzer kurz, was passiert ist, und fasse zusammen, was du bisher erreicht hast.` });
+                full += `\n\n[API-Fehler: ${apiErrText}]`;
+                if (streamEl && typeof streamEl._append === 'function') streamEl._append(`\n\n⚠️ API-Fehler: ${apiErrText}`);
+                continue;
+            }
 
             let collectedToolCalls = [];
             let hasToolCall = false;
 
-            const stream = await client.chat.completions.create(params);
             for await (const chunk of stream) {
                 const delta = chunk?.choices?.[0]?.delta;
                 if (!delta) continue;
@@ -721,7 +748,11 @@ ChatAddons.register({
                     });
                 } catch (err) {
                     console.error('[pa-coding] tool error', err);
-                    result = { content: `Fehler: ${err.message || err}` };
+                    const errText = (err && err.message) ? err.message : String(err);
+                    result = {
+                        content: `[TOOL-FEHLER] ${tc.function.name} fehlgeschlagen: ${errText}. Bitte diagnostiziere den Fehler (z. B. Argumente prüfen), versuche einen anderen Ansatz oder erkläre dem Nutzer die Ursache – und fahre fort.`,
+                    };
+                    this._appendLog(`⚠️ <b>Tool ${this._esc(tc.function.name)} fehlgeschlagen</b> – Agent wird informiert und fährt fort.`, 'warn');
                 }
 
                 const resultText = this._toolResultToString(result);
@@ -729,23 +760,31 @@ ChatAddons.register({
                 resultLine.innerHTML = `<div class="pa-coding-result-header">↩️ Ergebnis (${resultText.length} Zeichen)</div><div class="pa-coding-result-body">${this._esc(resultText.slice(0, 2000))}</div>`;
                 this._setStatus(`${this._getSelectedToolsForAPI().length} Tools`);
 
-                messages.push({
+                const toolCallId = tc.id || `call_${Date.now()}_${iter}`;
+                const assistantCall = {
                     role: 'assistant',
                     content: null,
                     tool_calls: [{
-                        id: tc.id || `call_${Date.now()}_${iter}`,
+                        id: toolCallId,
                         type: 'function',
                         function: {
                             name: tc.function.name,
                             arguments: tc.function.arguments || '{}',
                         },
                     }],
-                });
-                messages.push({
+                };
+                const toolResultMsg = {
                     role: 'tool',
-                    tool_call_id: tc.id || `call_${Date.now()}_${iter}`,
+                    tool_call_id: toolCallId,
                     content: resultText,
-                });
+                };
+                // WICHTIG: in `msgs` pushen (die echte API-Konversation),
+                // damit der Agent Tool-Ergebnisse/-Fehler sieht und
+                // informiert weitermachen kann.
+                msgs.push(assistantCall);
+                msgs.push(toolResultMsg);
+                messages.push(assistantCall);
+                messages.push(toolResultMsg);
             }
         }
 
@@ -788,7 +827,7 @@ ChatAddons.register({
     border: 1px solid var(--blur-border, #333);
     border-radius: 12px;
     font-size: 13px; line-height: 1.5;
-    max-height: 420px; overflow: hidden;
+    max-height: 560px; overflow: hidden;
 }
 .pa-coding-header {
     display: flex; align-items: center; gap: 8px;
@@ -806,13 +845,39 @@ ChatAddons.register({
     font-size: 11px; opacity: .7; cursor: pointer;
 }
 .pa-coding-filter input { accent-color: var(--accent, #8b3dff); cursor: pointer; }
-.pa-coding-toggle, .pa-coding-clear, .pa-coding-errors {
+.pa-coding-toggle, .pa-coding-clear, .pa-coding-errors, .pa-coding-fullsize {
     background: none; border: none; cursor: pointer;
     font-size: 14px; opacity: .6; padding: 2px 6px; border-radius: 6px;
 }
-.pa-coding-toggle:hover, .pa-coding-clear:hover, .pa-coding-errors:hover { opacity: 1; background: rgba(255,255,255,.08); }
+.pa-coding-toggle:hover, .pa-coding-clear:hover, .pa-coding-errors:hover, .pa-coding-fullsize:hover { opacity: 1; background: rgba(255,255,255,.08); }
+.pa-coding-fullsize.active { opacity: 1; background: rgba(139,61,255,.18); color: var(--accent, #8b3dff); }
 .pa-coding-errors { color: #f87171; }
 .pa-coding-errors:hover { background: rgba(248,113,113,.12); }
+
+/* Config row (Base URL + Modell) */
+.pa-coding-config {
+    display: flex; flex-wrap: wrap; gap: 6px 14px;
+    padding: 6px 8px;
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px;
+    background: rgba(0,0,0,.15);
+}
+.pa-coding-config-field {
+    display: flex; align-items: center; gap: 6px;
+    flex: 1 1 auto; min-width: 220px;
+    font-size: 12px;
+}
+.pa-coding-config-field > span {
+    flex-shrink: 0; opacity: .65; font-weight: 500;
+}
+.pa-coding-config-field input {
+    flex: 1; min-width: 0;
+    background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 6px; color: inherit; font-size: 12px; font-family: inherit;
+    padding: 4px 8px; outline: none;
+}
+.pa-coding-config-field input:focus { border-color: var(--accent, #8b3dff); }
+.pa-coding-config-field input::placeholder { opacity: .45; }
 .pa-coding-body { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
 .pa-coding-tools {
     display: flex; flex-direction: column; gap: 4px; max-height: 110px; overflow: auto;
@@ -834,7 +899,8 @@ ChatAddons.register({
 .pa-coding-empty { font-size: 12px; opacity: .6; padding: 4px 8px; }
 .pa-coding-log {
     display: flex; flex-direction: column; gap: 4px;
-    max-height: 240px; overflow: auto; padding: 4px 2px;
+    flex: 1; min-height: 80px;
+    max-height: 260px; overflow: auto; padding: 4px 2px;
     font-size: 13px;
 }
 .pa-coding-line { white-space: pre-wrap; word-break: break-word; }
@@ -908,6 +974,31 @@ ChatAddons.register({
     transition: background .15s, border-color .15s;
 }
 .pa-coding-action:hover { background: rgba(139,61,255,.2); border-color: var(--accent, #8b3dff); }
+.pa-coding-user { font-weight: 600; }
+
+/* Full-size mode: panel fills the whole chat body */
+.pa-coding.pa-coding-fullsize-active {
+    position: absolute !important;
+    top: 0 !important; left: 0 !important;
+    width: 100% !important; height: 100% !important;
+    max-width: 100% !important; max-height: 100% !important;
+    z-index: 999 !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: hidden !important;
+    background: var(--colour-1, #0f0f0f);
+    padding: 12px 16px;
+}
+.pa-coding.pa-coding-fullsize-active .pa-coding-body {
+    flex: 1; min-height: 0;
+}
+.pa-coding.pa-coding-fullsize-active .pa-coding-log {
+    flex: 1; max-height: none;
+}
+.pa-coding.pa-coding-fullsize-active .pa-coding-tools {
+    max-height: 30vh;
+}
 `;
     document.head.appendChild(style);
 })();

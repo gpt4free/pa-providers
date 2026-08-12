@@ -2,17 +2,17 @@
  * Addon: Browser Console Errors
  *
  * Captures console.error, uncaught exceptions, and unhandled promise
- * rejections from the browser. Stores them in a ring buffer and exposes
+ * rejections from the browser_ Stores them in a ring buffer and exposes
  * them via a global API so the MCP Agent can include them as context
  * when sending prompts to the AI.
  *
  * Also registers a virtual MCP server ("browser") with tools:
- *   - browser.get_errors      → return captured console errors
- *   - browser.clear_errors     → clear the error buffer
- *   - browser.eval             → evaluate JS in the page (read-only)
- *   - browser.get_url          → return current page URL + title
- *   - browser.get_console_log  → return recent console.log output
- *   - browser.get_dom          → query the DOM (read-only)
+ *   - browser_get_errors      → return captured console errors
+ *   - browser_clear_errors     → clear the error buffer
+ *   - browser_eval             → evaluate JS in the page (read-only)
+ *   - browser_get_url          → return current page URL + title
+ *   - browser_get_console_log  → return recent console.log output
+ *   - browser_get_dom          → query the DOM (read-only)
  *
  * The virtual server is ALWAYS exposed via `window._paVirtualServers`
  * (in addition to `mcpClient.registerVirtualServer` if available) so
@@ -228,7 +228,7 @@
                 name: 'browser',
                 tools: [
                     {
-                        name: 'browser.get_errors',
+                        name: 'browser_get_errors',
                         description: 'Get browser console errors, uncaught exceptions, and unhandled promise rejections captured by the browser-errors addon.',
                         inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max number of errors to return (default 20)' } } },
                         handler: function (args) {
@@ -241,7 +241,7 @@
                         },
                     },
                     {
-                        name: 'browser.clear_errors',
+                        name: 'browser_clear_errors',
                         description: 'Clear all captured browser console errors.',
                         inputSchema: { type: 'object', properties: {} },
                         handler: function () {
@@ -250,7 +250,7 @@
                         },
                     },
                     {
-                        name: 'browser.get_console_log',
+                        name: 'browser_get_console_log',
                         description: 'Get recent console.log output captured by the browser-errors addon.',
                         inputSchema: { type: 'object', properties: { limit: { type: 'number', description: 'Max number of log entries to return (default 15)' } } },
                         handler: function (args) {
@@ -260,7 +260,7 @@
                         },
                     },
                     {
-                        name: 'browser.get_url',
+                        name: 'browser_get_url',
                         description: 'Get the current browser page URL and title.',
                         inputSchema: { type: 'object', properties: {} },
                         handler: function () {
@@ -269,7 +269,7 @@
                         },
                     },
                     {
-                        name: 'browser.eval',
+                        name: 'browser_eval',
                         description: 'Evaluate a JavaScript expression in the browser page context and return the result. Use for debugging or inspecting DOM state.',
                         inputSchema: {
                             type: 'object',
@@ -290,7 +290,7 @@
                         },
                     },
                     {
-                        name: 'browser.get_dom',
+                        name: 'browser_get_dom',
                         description: 'Query the DOM with a CSS selector and return the outerHTML of matching elements (truncated).',
                         inputSchema: {
                             type: 'object',
