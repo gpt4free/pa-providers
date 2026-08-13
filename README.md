@@ -11,6 +11,7 @@ Share, create, and edit your custom g4f providers easily and fast. Simply drop t
 - **Live MCP Integration:** Setup a g4f MCP server with built-in tools to create, edit, and manage your custom PA providers. The provider list updates live.
 - **Privacy & Security:** Dot-prefixed filenames or directories are never exposed in public-facing methods. Each provider is assigned a stable, opaque ID.
 - **API & Chat Support:** Seamlessly use providers via the g4f REST API or connect them to your favorite MCP-compatible chat interface.
+- **Coding Agent Addon:** There is also a dedicated coding addon available in this workspace: [README_PA_CODING.md](README_PA_CODING.md)
 
 ---
 

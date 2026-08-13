@@ -183,11 +183,15 @@
         },
 
         _stringify: function (val) {
-            if (val == null) return String(val);
+            if (val === undefined) return '(undefined)';
+            if (val === null) return '(null)';
             if (typeof val === 'string') return val;
+            if (typeof val === 'number' || typeof val === 'boolean') return String(val);
             if (val instanceof Error) return val.message + (val.stack ? '\n' + val.stack : '');
+            if (val instanceof HTMLElement) return val.outerHTML.slice(0, 2000);
+            if (val instanceof Node) return val.nodeName + ' (' + val.nodeType + ')';
             try {
-                return JSON.stringify(val);
+                return JSON.stringify(val, null, 2);
             } catch (e) {
                 return String(val);
             }
@@ -280,6 +284,17 @@
                             try {
                                 // eslint-disable-next-line no-eval
                                 var result = eval(String(args && args.code || ''));
+                                // If eval returned a Promise, await it
+                                if (result && typeof result.then === 'function') {
+                                    return result.then(function (resolved) {
+                                        return { content: [{ type: 'text', text: self._stringify(resolved) }] };
+                                    }).catch(function (err) {
+                                        return {
+                                            content: [{ type: 'text', text: 'Error: ' + (err && err.message ? err.message : err) }],
+                                            isError: true,
+                                        };
+                                    });
+                                }
                                 return Promise.resolve({ content: [{ type: 'text', text: self._stringify(result) }] });
                             } catch (err) {
                                 return Promise.resolve({

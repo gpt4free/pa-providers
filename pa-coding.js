@@ -6,8 +6,8 @@
  * (`window.createClient(...)`) and the same MCP tool execution
  * (`mcpClient.executeToolCalls(...)`) as the MCP Agent, but:
  *
- *   1. Uses a coding-tuned system prompt (write, debug, refactor, review).
- *   2. Filters tools to coding-relevant ones by default (file ops,
+ *   1. Uses a coding-tuned system prompt.
+ *   2. Filters MCP tools by default to coding-relevant ones (file ops,
  *      git, diff/patch, search, browser debugging) — user can toggle.
  *   3. Renders code blocks with copy buttons and syntax-aware styling.
  *   4. Lets you inject the selected text/code from the editor or chat
@@ -19,7 +19,7 @@
 ChatAddons.register({
     id: 'workspace:pa-coding',
     name: 'Coding Agent',
-    version: '1.0.2',
+    version: '1.0.4',
     description: 'Coding-fokussierter Agent: schreibt, debuggt, refaktoriert und erklärt Code mit deinen MCP-Tools.',
     author: 'g4f',
     builtin: false,
@@ -30,7 +30,10 @@ ChatAddons.register({
 
     // Coding-relevant tool name substrings (case-insensitive) used to
     // filter MCP tools. Virtual tools keep their server prefix (e.g.
-    // "browser.*") so we match against the full dotted name.
+    // "virtual.*") so we match against the full dotted name.
+    _logIdCounter: 0,
+    _lastStreamLineId: null,
+
     CODING_TOOL_MATCH: [
         // filesystem / file ops
         'file', 'read', 'write', 'edit', 'append', 'patch', 'diff',
@@ -61,8 +64,12 @@ ChatAddons.register({
     },
 
     unload() {
+        this._loaded = false;
         const panel = document.getElementById('pa-coding-panel');
-        if (panel) panel.remove();
+        if (panel) {
+            panel.parentElement.childNodes.forEach((n) => { if (n.nodeType === Node.ELEMENT_NODE) n.style.display = ''; });
+            panel.remove();
+        }
     },
 
     // ----------------------------------------------------------------
@@ -122,9 +129,10 @@ ChatAddons.register({
     },
 
     // Tools in OpenAI function-call API format, respecting the coding filter
-    _getSelectedToolsForAPI() {
+    _getSelectedToolsForAPI(forceAll) {
         const allTools = this._getTools();
-        let pool = this._filterCodingTools(allTools);
+        const shouldFilter = forceAll !== true;
+        let pool = shouldFilter ? this._filterCodingTools(allTools) : allTools;
         if (pool.length === 0) pool = allTools; // fallback: nothing matched
         const out = [];
         for (const t of pool) {
@@ -133,7 +141,7 @@ ChatAddons.register({
                 function: {
                     name: t.name,
                     description: t.description,
-                    parameters: t.inputSchema || { type: 'object', properties: {} },
+                    parameters: (t.inputSchema && typeof t.inputSchema === 'object') ? t.inputSchema : { type: 'object', properties: {} },
                 },
             });
         }
@@ -170,7 +178,12 @@ ChatAddons.register({
                 const handler = vTool._server.tools.find((t) => t.name === toolName)?.handler;
                 if (typeof handler === 'function') {
                     let args = {};
-                    try { args = JSON.parse(toolCall.function.arguments || '{}'); } catch (e) { /* ignore */ }
+                    const rawArgs = toolCall.function.arguments;
+                    if (typeof rawArgs === 'string') {
+                        try { args = JSON.parse(rawArgs || '{}'); } catch (e) { /* ignore */ }
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        args = rawArgs;
+                    }
                     return await handler(args);
                 }
             }
@@ -193,10 +206,11 @@ ChatAddons.register({
     _injectPanel() {
         return new Promise((resolve) => {
             const tryInject = () => {
-                // Anchor inside the chat body itself so the panel can
-                // expand to fill it. Fall back to the input area.
-                const chatBody = document.querySelector('#chatBody, .chat-body');
-                const anchor = chatBody || document.querySelector('.input-area, .chat-input-area, #chat-input-area, main .bottom, .message-input-area, #userInput');
+                // Anchor inside .chat-container so the panel fills it 100%.
+                // Fall back to chat body / input area if not found.
+                const anchor = document.querySelector('.chat-container')
+                    || document.querySelector('#chatBody, .chat-body')
+                    || document.querySelector('.input-area, .chat-input-area, #chat-input-area, main .bottom, .message-input-area, #userInput');
                 if (!anchor) {
                     setTimeout(tryInject, 400);
                     return;
@@ -243,6 +257,7 @@ ChatAddons.register({
                         </div>
                     </div>
                 `;
+                anchor.childNodes.forEach((n) => { if (n.nodeType === Node.ELEMENT_NODE) n.style.display = 'none'; });
                 anchor.prepend(panel);
                 this._bindPanelEvents(panel);
                 this._appendLog('👨‍💻 Coding Agent bereit. Nutzt deine MCP-Tools (Datei, Git, Suche, Browser-Debugging).', 'info');
@@ -416,6 +431,37 @@ ChatAddons.register({
         return line;
     },
 
+    // Append a status/log line with optional step marker.
+    // Returns a wrapper element that can be updated in place via
+    // `.update(html)` without creating a new DOM node.
+    _appendStatus(html, cls) {
+        const panel = document.getElementById('pa-coding-panel');
+        if (!panel) return null;
+        const log = panel.querySelector('#pa-coding-log');
+        if (!log) return null;
+
+        const line = document.createElement('div');
+        line.className = 'pa-coding-line ' + (cls || 'info');
+        line.innerHTML = html;
+        log.appendChild(line);
+
+        this._logIdCounter = (this._logIdCounter || 0) + 1;
+        line.dataset.logId = 'pa-coding-log-' + this._logIdCounter;
+
+        this._scrollToLogIfNeeded();
+        return line;
+    },
+
+    // Update an existing status line in place.
+    _updateStatus(line, html) {
+        if (!line) return;
+        if (line.dataset.logId) {
+            line.dataset.logId = '';
+        }
+        line.innerHTML = html;
+        this._scrollToLogIfNeeded();
+    },
+
     // Render a message chunk with code-block detection + copy buttons.
     // Returns a wrapper element so callers can keep streaming into it.
     // The wrapper element keeps a prefix (e.g. the "Coding Agent:" label)
@@ -469,12 +515,32 @@ ChatAddons.register({
         return out.replace(/\n/g, '<br>');
     },
 
+    // ----------------------------------------------------------------
+    // Scroll helpers
+    // ----------------------------------------------------------------
+    _scrollToLogIfNeeded() {
+        const panel = document.getElementById('pa-coding-panel');
+        if (!panel) return;
+        const log = panel.querySelector('#pa-coding-log');
+        if (!log) return;
+
+        const isNearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 80;
+        if (isNearBottom) {
+            log.scrollTop = log.scrollHeight;
+        }
+    },
+
+    _scrollToLogLine(line) {
+        if (!line || !line.dataset.logId) return;
+        line.dataset.logId = 'pa-coding-log-' + (++this._logIdCounter);
+        line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    },
+
     _setStatus(text) {
         const panel = document.getElementById('pa-coding-panel');
-        if (panel) {
-            const status = panel.querySelector('#pa-coding-status');
-            if (status) status.textContent = text;
-        }
+        if (!panel) return;
+        const status = panel.querySelector('#pa-coding-status');
+        if (status) status.textContent = text;
     },
 
     _esc(str) {
@@ -515,6 +581,18 @@ ChatAddons.register({
         const errors = this._getBrowserErrors();
         if (errors.length === 0) {
             this._appendLog('ℹ️ Keine Browser-Fehler erfasst.', 'info');
+            return;
+        }
+        const toolNames = this._getSelectedToolsForAPI(true)
+            .map(t => t.function && t.function.name)
+            .filter(Boolean);
+        const hasTool = toolNames.some(n => /browser|error|console|get_errors/.test(n));
+        if (!hasTool) {
+            const line = this._appendStatus(
+                'ℹ️ <b>Browser-Fehler sind vorhanden, aber es sind keine passenden Browser-/Fehler-Tools ausgewählt.</b> ' +
+                'Aktiviere z. B. <b>browser.get_errors</b> oder <b>browser.clear_errors</b>, damit der Agent sie nutzen kann.',
+                'warn'
+            );
             return;
         }
         const errorText = errors.map(e =>
@@ -579,7 +657,7 @@ ChatAddons.register({
         input.style.height = 'auto';
         sendBtn.disabled = true;
 
-        this._appendLog(`<span class="pa-coding-user">🧑 <b>Du:</b></span> ${this._esc(text)}`, 'user');
+        const userLine = this._appendStatus(`<span class="pa-coding-user">🧑 <b>Du:</b></span> ${this._esc(text)}`, 'user');
 
         const tools = this._getSelectedToolsForAPI();
         if (tools.length === 0) {
@@ -602,13 +680,17 @@ ChatAddons.register({
 
         try {
             // The streamed response is rendered code-aware.
+            this._setStatus('⏳ Antwort wird generiert…');
             const responseLine = this._appendCodeAware(`<span class="pa-coding-ai">🤖 <b>Coding Agent:</b></span> `, 'ai');
             await this._runAgentLoop(this._history, responseLine, tools);
 
             this._appendLog('', 'sep');
+            this._setStatus('✅ Antwort abgeschlossen');
+            if (userLine) this._scrollToLogLine(userLine);
         } catch (err) {
             console.error('[pa-coding] error', err);
             this._appendLog(`❌ <b>Fehler:</b> ${this._esc(err.message || String(err))}`, 'error');
+            this._setStatus('❌ Fehler');
         } finally {
             sendBtn.disabled = false;
             this._setStatus(`${this._getSelectedToolsForAPI().length} Tools`);
@@ -618,6 +700,7 @@ ChatAddons.register({
 
     // The streamed response itself is appended code-aware into the
     // wrapper element `streamEl` (created by _appendCodeAware).
+    // Returns the final assistant text for this run.
     async _runAgentLoop(messages, streamEl, tools) {
         const MAX_ITER = 8;
         let iter = 0;
@@ -641,7 +724,7 @@ ChatAddons.register({
             '```',
             'Warte auf das Ergebnis und verarbeite es in deiner Antwort.',
             'Nutze exakte Tool-Namen aus der Liste. Rufe Tools nur auf, wenn sie wirklich helfen.',
-            'Code-Ausgaben schreibst du in ```-Codeblöcke mit Sprachangabe (z. B. ```python).',
+            'Code-Ausgaben schreibst du in ```-Codeblöcken mit Sprachangabe (z. B. ```python).',
             'Erkläre kurz, was du tust, und zeige Änderungen als Diff oder vollständige Dateien.',
         ].join('\n');
 
@@ -656,6 +739,7 @@ ChatAddons.register({
 
             let client, params, stream;
             try {
+                this._setStatus('🔗 Verbinde mit Modell…');
                 client = await window.createClient(provider, clientOptions);
                 params = {
                     model: model || undefined,
@@ -675,12 +759,12 @@ ChatAddons.register({
                 if (!retriedWithoutTools && tools.length > 0) {
                     retriedWithoutTools = true;
                     tools = [];
-                    this._appendLog(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – erneuter Versuch ohne Tool-Definitionen…`, 'warn');
+                    const retryLine = this._appendStatus(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – erneuter Versuch ohne Tool-Definitionen…`, 'warn');
                     msgs.push({ role: 'user', content: `[SYSTEM] Der API-Aufruf ist fehlgeschlagen (${apiErrText}). Du wirst ohne Tool-Definitionen fortgesetzt. Beantworte die Nutzerfrage möglichst vollständig und erkläre den Fehler, falls relevant.` });
                     iter--;
                     continue;
                 }
-                this._appendLog(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – Agent wird informiert.`, 'warn');
+                const errLine = this._appendStatus(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – Agent wird informiert.`, 'warn');
                 msgs.push({ role: 'user', content: `[SYSTEM] API-Fehler: ${apiErrText}. Bitte erkläre dem Nutzer kurz, was passiert ist, und fasse zusammen, was du bisher erreicht hast.` });
                 full += `\n\n[API-Fehler: ${apiErrText}]`;
                 if (streamEl && typeof streamEl._append === 'function') streamEl._append(`\n\n⚠️ API-Fehler: ${apiErrText}`);
@@ -689,42 +773,87 @@ ChatAddons.register({
 
             let collectedToolCalls = [];
             let hasToolCall = false;
+            let roundText = '';
 
-            for await (const chunk of stream) {
-                const delta = chunk?.choices?.[0]?.delta;
-                if (!delta) continue;
-                if (delta.reasoning) {
-                    const r = document.createElement('span');
-                    r.className = 'pa-coding-reasoning';
-                    r.textContent = delta.reasoning;
-                    streamEl.appendChild(r);
-                }
-                if (delta.content) {
-                    full += delta.content;
-                    streamEl._append(delta.content);
-                    streamEl.scrollIntoView({ block: 'nearest' });
-                }
-                if (delta.tool_calls) {
-                    hasToolCall = true;
-                    for (const tc of delta.tool_calls) {
-                        if (!collectedToolCalls[tc.index]) {
-                            collectedToolCalls[tc.index] = { id: tc.id, function: { name: '', arguments: '' } };
+            // Stream mit Fehlerbehandlung, damit ein Abbruch mittendrin
+            // nicht als "Stopp" ohne Information wirkt.
+            try {
+                for await (const chunk of stream) {
+                    const delta = chunk?.choices?.[0]?.delta;
+                    if (!delta) continue;
+                    if (delta.reasoning) {
+                        const r = document.createElement('span');
+                        r.className = 'pa-coding-reasoning';
+                        r.textContent = delta.reasoning;
+                        streamEl.appendChild(r);
+                    }
+                    if (delta.content) {
+                        roundText += delta.content;
+                        full += delta.content;
+                        streamEl._append(delta.content);
+                        this._scrollToLogIfNeeded();
+                        streamEl.scrollIntoView({ block: 'nearest' });
+                    }
+                    if (delta.tool_calls) {
+                        hasToolCall = true;
+                        for (const tc of delta.tool_calls) {
+                            if (!collectedToolCalls[tc.index]) {
+                                collectedToolCalls[tc.index] = { id: tc.id, function: { name: '', arguments: '' } };
+                            }
+                            if (tc.id) collectedToolCalls[tc.index].id = tc.id;
+                            if (tc.function?.name) collectedToolCalls[tc.index].function.name += tc.function.name;
+                            if (tc.function?.arguments) collectedToolCalls[tc.index].function.arguments += tc.function.arguments;
                         }
-                        if (tc.id) collectedToolCalls[tc.index].id = tc.id;
-                        if (tc.function?.name) collectedToolCalls[tc.index].function.name += tc.function.name;
-                        if (tc.function?.arguments) collectedToolCalls[tc.index].function.arguments += tc.function.arguments;
                     }
                 }
+            } catch (streamErr) {
+                console.error('[pa-coding] stream error', streamErr);
+                const streamErrLine = this._appendStatus(`⚠️ <b>Stream-Fehler:</b> ${this._esc(streamErr.message || String(streamErr))}`, 'warn');
+                // Wenn noch kein Text in dieser Runde kam, brich ab;
+                // ansonsten zeige das bisherige Ergebnis an.
+                if (!full) full = roundText;
+                break;
             }
 
             collectedToolCalls = collectedToolCalls.filter(tc => tc && tc.function && tc.function.name);
 
+            console.debug('[pa-coding] collected tool calls', collectedToolCalls);
+
             if (!hasToolCall || collectedToolCalls.length === 0) {
-                messages.push({ role: 'assistant', content: full });
-                return full;
+                const finalText = full || roundText;
+                if (!finalText) {
+                    this._appendLog('ℹ️ Agent hat keine Antwort generiert und keine Tools aufgerufen.', 'info');
+                }
+                messages.push({ role: 'assistant', content: finalText });
+                msgs.push({ role: 'assistant', content: finalText });
+                return finalText;
             }
 
-            for (const tc of collectedToolCalls) {
+            const toolNames = collectedToolCalls.map(tc => tc.function && tc.function.name).filter(Boolean);
+            this._setStatus('🔧 Tool-Call: ' + toolNames.join(', '));
+
+            // Build a single assistant message with ALL tool_calls,
+            // then push individual tool result messages.
+            // This matches the OpenAI API contract: one assistant
+            // message with N tool_calls → N tool result messages.
+            const assistantToolMsg = {
+                role: 'assistant',
+                content: roundText || null,
+                tool_calls: collectedToolCalls.map(tc => ({
+                    id: tc.id || `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                    type: 'function',
+                    function: {
+                        name: tc.function.name,
+                        arguments: tc.function.arguments || '{}',
+                    },
+                })),
+            };
+            msgs.push(assistantToolMsg);
+            messages.push(assistantToolMsg);
+
+            for (let i = 0; i < collectedToolCalls.length; i++) {
+                const tc = collectedToolCalls[i];
+                const toolCallId = assistantToolMsg.tool_calls[i].id;
                 let args;
                 try {
                     args = JSON.parse(tc.function.arguments || '{}');
@@ -740,7 +869,7 @@ ChatAddons.register({
                 try {
                     this._setStatus(`⏳ ${tc.function.name}…`);
                     result = await this._executeToolCall({
-                        id: tc.id || `call_${Date.now()}_${iter}`,
+                        id: toolCallId,
                         function: {
                             name: tc.function.name,
                             arguments: args,
@@ -752,7 +881,7 @@ ChatAddons.register({
                     result = {
                         content: `[TOOL-FEHLER] ${tc.function.name} fehlgeschlagen: ${errText}. Bitte diagnostiziere den Fehler (z. B. Argumente prüfen), versuche einen anderen Ansatz oder erkläre dem Nutzer die Ursache – und fahre fort.`,
                     };
-                    this._appendLog(`⚠️ <b>Tool ${this._esc(tc.function.name)} fehlgeschlagen</b> – Agent wird informiert und fährt fort.`, 'warn');
+                    const toolErrLine = this._appendStatus(`⚠️ <b>Tool ${this._esc(tc.function.name)} fehlgeschlagen</b> – Agent wird informiert und fährt fort.`, 'warn');
                 }
 
                 const resultText = this._toolResultToString(result);
@@ -760,19 +889,6 @@ ChatAddons.register({
                 resultLine.innerHTML = `<div class="pa-coding-result-header">↩️ Ergebnis (${resultText.length} Zeichen)</div><div class="pa-coding-result-body">${this._esc(resultText.slice(0, 2000))}</div>`;
                 this._setStatus(`${this._getSelectedToolsForAPI().length} Tools`);
 
-                const toolCallId = tc.id || `call_${Date.now()}_${iter}`;
-                const assistantCall = {
-                    role: 'assistant',
-                    content: null,
-                    tool_calls: [{
-                        id: toolCallId,
-                        type: 'function',
-                        function: {
-                            name: tc.function.name,
-                            arguments: tc.function.arguments || '{}',
-                        },
-                    }],
-                };
                 const toolResultMsg = {
                     role: 'tool',
                     tool_call_id: toolCallId,
@@ -781,14 +897,16 @@ ChatAddons.register({
                 // WICHTIG: in `msgs` pushen (die echte API-Konversation),
                 // damit der Agent Tool-Ergebnisse/-Fehler sieht und
                 // informiert weitermachen kann.
-                msgs.push(assistantCall);
                 msgs.push(toolResultMsg);
-                messages.push(assistantCall);
                 messages.push(toolResultMsg);
             }
+            // Reset round text for next iteration
+            full = '';
+            this._setStatus('🔄 Verarbeite Tool-Ergebnisse…');
         }
 
         messages.push({ role: 'assistant', content: full });
+        msgs.push({ role: 'assistant', content: full });
         return full;
     },
 
@@ -796,17 +914,32 @@ ChatAddons.register({
         try {
             if (result == null) return '(kein Ergebnis)';
             if (typeof result === 'string') return result;
-            if (Array.isArray(result)) {
-                return result.map(item => {
+            // MCP standard: { content: [{ type: 'text', text: '...' }] }
+            // Extract the .text field from each content item instead of
+            // JSON-stringifying the whole array.
+            if (Array.isArray(result.content)) {
+                return result.content.map(item => {
                     if (item == null) return '';
                     if (typeof item === 'string') return item;
+                    if (typeof item.text === 'string') return item.text;
                     if (item.content != null) return typeof item.content === 'string' ? item.content : JSON.stringify(item.content);
                     return JSON.stringify(item);
                 }).join('\n');
             }
-            if (result.content != null) {
-                return typeof result.content === 'string' ? result.content : JSON.stringify(result.content);
+            if (Array.isArray(result)) {
+                return result.map(item => {
+                    if (item == null) return '';
+                    if (typeof item === 'string') return item;
+                    if (typeof item.text === 'string') return item.text;
+                    if (Array.isArray(item.content)) {
+                        return item.content.map(c => typeof c === 'string' ? c : (c && typeof c.text === 'string' ? c.text : JSON.stringify(c))).join('\n');
+                    }
+                    if (item.content != null) return typeof item.content === 'string' ? item.content : JSON.stringify(item.content);
+                    return JSON.stringify(item);
+                }).join('\n');
             }
+            if (typeof result.content === 'string') return result.content;
+            if (typeof result.text === 'string') return result.text;
             return JSON.stringify(result);
         } catch (e) {
             return String(result);
@@ -820,14 +953,19 @@ ChatAddons.register({
     const style = document.createElement('style');
     style.id = 'pa-coding-css';
     style.textContent = `
+/* Ensure .chat-container allows the panel to fill it */
+.chat-container { position: relative; }
 .pa-coding {
     display: flex; flex-direction: column; gap: 6px;
-    margin-bottom: 8px; padding: 8px 10px;
+    margin: 0; padding: 8px 10px;
     background: rgba(255,255,255,.03);
     border: 1px solid var(--blur-border, #333);
     border-radius: 12px;
     font-size: 13px; line-height: 1.5;
-    max-height: 560px; overflow: hidden;
+    width: 100% !important; height: 100% !important;
+    max-width: 100% !important; max-height: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden;
 }
 .pa-coding-header {
     display: flex; align-items: center; gap: 8px;
@@ -900,7 +1038,7 @@ ChatAddons.register({
 .pa-coding-log {
     display: flex; flex-direction: column; gap: 4px;
     flex: 1; min-height: 80px;
-    max-height: 260px; overflow: auto; padding: 4px 2px;
+    overflow: auto; padding: 4px 2px;
     font-size: 13px;
 }
 .pa-coding-line { white-space: pre-wrap; word-break: break-word; }
