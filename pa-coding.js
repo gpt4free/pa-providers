@@ -230,30 +230,30 @@ ChatAddons.register({
                         <label class="pa-coding-filter" title="Nur Coding-relevante Tools verwenden">
                             <input type="checkbox" id="pa-coding-filter" checked> <span>nur Code-Tools</span>
                         </label>
-                        <button class="pa-coding-errors" id="pa-coding-errors" title="Browser-Fehler als Kontext senden">🐛 <span id="pa-coding-errorcount">0</span></button>
+                        <button class="pa-coding-errors" id="pa-coding-errors" title="Browser-Error als Kontext senden">🐛 <span id="pa-coding-errorcount">0</span></button>
                         <button class="pa-coding-fullsize" id="pa-coding-fullsize" title="Volle Größe (Chat-Body ersetzen)">⛶</button>
                         <button class="pa-coding-toggle" id="pa-coding-toggle" title="Tools anzeigen/verbergen">🧰 <span id="pa-coding-toolcount">0</span></button>
-                        <button class="pa-coding-clear" id="pa-coding-clear" title="Verlauf löschen">🗑️</button>
+                        <button class="pa-coding-clear" id="pa-coding-clear" title="History löschen">🗑️</button>
                     </div>
                     <div class="pa-coding-config">
-                        <label class="pa-coding-config-field" title="Basis-URL des OpenAI-kompatiblen Endpunkts (z. B. http://localhost:8090/api/pa:6455e06a)">
+                        <label class="pa-coding-config-field" title="Base URL des OpenAI-kompatiblen Endpunkts (z. B. http://localhost:8090/api/pa:6455e06a)">
                             <span>Base URL</span>
                             <input type="text" id="pa-coding-baseurl" placeholder="http://localhost:8090/api/pa:6455e06a">
                         </label>
-                        <label class="pa-coding-config-field" title="Modell (leer = Modell aus dem Haupt-Chat)">
-                            <span>Modell</span>
-                            <input type="text" id="pa-coding-model" placeholder="auto (Chat-Modell)">
+                        <label class="pa-coding-config-field" title="Model (leer = Model aus dem Haupt-Chat)">
+                            <span>Model</span>
+                            <input type="text" id="pa-coding-model" placeholder="auto (Chat-Model)">
                         </label>
                     </div>
                     <div class="pa-coding-body" id="pa-coding-body">
                         <div class="pa-coding-tools" id="pa-coding-tools"></div>
                         <div class="pa-coding-log" id="pa-coding-log"></div>
                         <div class="pa-coding-input-row">
-                            <textarea class="pa-coding-input" id="pa-coding-input" placeholder="Code-Aufgabe: schreibe, debugge, refaktoriere oder erkläre Code… (Enter = senden, Shift+Enter = neue Zeile)" rows="1"></textarea>
-                            <button class="pa-coding-send" id="pa-coding-send" title="Senden">➤</button>
+                            <textarea class="pa-coding-input" id="pa-coding-input" placeholder="Code task: write, debug, refactor or explain code… (Enter = send, Shift+Enter = new line)" rows="1"></textarea>
+                            <button class="pa-coding-send" id="pa-coding-send" title="Send">➤</button>
                         </div>
                         <div class="pa-coding-actions">
-                            <button class="pa-coding-action" id="pa-coding-inject" title="Markierten Code/Text aus der Seite einsetzen">📋 Auswahl einsetzen</button>
+                            <button class="pa-coding-action" id="pa-coding-inject" title="Insert selected code/text from the page">📋 Auswahl einsetzen</button>
                         </div>
                     </div>
                 `;
@@ -293,7 +293,7 @@ ChatAddons.register({
         clearBtn.addEventListener('click', () => {
             const log = panel.querySelector('#pa-coding-log');
             log.innerHTML = '';
-            this._appendLog('🗑️ Verlauf gelöscht.', 'info');
+            this._appendLog('🗑️ History cleared.', 'info');
         });
         if (errorsBtn) {
             errorsBtn.addEventListener('click', () => this._sendErrors());
@@ -391,11 +391,11 @@ ChatAddons.register({
 
         countEl.textContent = tools.length;
         if (tools.length === 0) {
-            statusEl.textContent = 'keine Tools';
-            toolsEl.innerHTML = `<div class="pa-coding-empty">Keine Coding-Tools gefunden. Bitte MCP-Server in den Einstellungen aktivieren und Seite neu laden.</div>`;
+            statusEl.textContent = 'no tools';
+            toolsEl.innerHTML = `<div class="pa-coding-empty">No coding tools found. Please enable MCP servers in settings and reload the page.</div>`;
             return;
         }
-        statusEl.textContent = `${tools.length} Tools${filtered.length !== allTools.length ? ' (gefiltert)' : ''} • ${selected.length} aktiv`;
+        statusEl.textContent = `${tools.length} Tools${filtered.length !== allTools.length ? ' (filtered)' : ''} • ${selected.length} active`;
 
         const selectedIds = new Set(selected.map(t => t.function?.name));
         toolsEl.innerHTML = '';
@@ -508,7 +508,7 @@ ChatAddons.register({
             out += this._esc(rest.slice(last, m.index));
             const lang = m[1] || '';
             const code = m[2];
-            out += `<div class="pa-coding-codeblock"><div class="pa-coding-codeblock-head"><span>${this._esc(lang || 'code')}</span><button class="pa-coding-copy" title="Kopieren">⧉</button></div><pre><code class="language-${this._esc(lang)}">${this._esc(code)}</code></pre></div>`;
+            out += `<div class="pa-coding-codeblock"><div class="pa-coding-codeblock-head"><span>${this._esc(lang || 'code')}</span><button class="pa-coding-copy" title="Copy">⧉</button></div><pre><code class="language-${this._esc(lang)}">${this._esc(code)}</code></pre></div>`;
             last = m.index + m[0].length;
         }
         out += this._esc(rest.slice(last));
@@ -573,14 +573,14 @@ ChatAddons.register({
         const btn = document.getElementById('pa-coding-errors');
         if (btn) {
             btn.style.opacity = count > 0 ? '1' : '0.5';
-            btn.title = count > 0 ? `${count} Browser-Fehler – klicken um an Agent zu senden` : 'Keine Browser-Fehler';
+            btn.title = count > 0 ? `${count} Browser-Error – klicken um an Agent zu senden` : 'Keine Browser-Error';
         }
     },
 
     async _sendErrors() {
         const errors = this._getBrowserErrors();
         if (errors.length === 0) {
-            this._appendLog('ℹ️ Keine Browser-Fehler erfasst.', 'info');
+            this._appendLog('ℹ️ Keine Browser-Error erfasst.', 'info');
             return;
         }
         const toolNames = this._getSelectedToolsForAPI(true)
@@ -589,7 +589,7 @@ ChatAddons.register({
         const hasTool = toolNames.some(n => /browser|error|console|get_errors/.test(n));
         if (!hasTool) {
             const line = this._appendStatus(
-                'ℹ️ <b>Browser-Fehler sind vorhanden, aber es sind keine passenden Browser-/Fehler-Tools ausgewählt.</b> ' +
+                'ℹ️ <b>Browser-Error sind vorhanden, aber es sind keine passenden Browser-/Error-Tools ausgewählt.</b> ' +
                 'Aktiviere z. B. <b>browser.get_errors</b> oder <b>browser.clear_errors</b>, damit der Agent sie nutzen kann.',
                 'warn'
             );
@@ -629,7 +629,7 @@ ChatAddons.register({
             }
         }
         if (!text) {
-            this._appendLog('ℹ️ Keine Auswahl gefunden. Markiere Code/Text auf der Seite oder in einer Nachricht.', 'info');
+            this._appendLog('ℹ️ Keine Auswahl gefunden. Markiere Code/Text auf der Seite oder in einer Message.', 'info');
             return;
         }
         const input = document.getElementById('pa-coding-input');
@@ -661,7 +661,7 @@ ChatAddons.register({
 
         const tools = this._getSelectedToolsForAPI();
         if (tools.length === 0) {
-            this._appendLog(`⚠️ <b>Keine Coding-Tools ausgewählt.</b> Aktiviere MCP-Tools in den Einstellungen. Ich antworte trotzdem – aber ohne Werkzeuge.`, 'warn');
+            this._appendLog(`⚠️ <b>Keine Coding-Tools ausgewählt.</b> Aktiviere MCP-Tools in den Settings. Ich antworte trotzdem – aber ohne Werkzeuge.`, 'warn');
         }
 
         this._history = this._history || [];
@@ -673,24 +673,24 @@ ChatAddons.register({
                 `[${e.type}] ${e.time}: ${e.message}${e.stack ? '\n' + e.stack.split('\n').slice(0, 3).join('\n') : ''}`
             ).join('\n');
             userContent = `${text}\n\n--- Browser Console Errors (recent) ---\n${errorSummary}\n--- End Errors ---\n\nYou can use the browser.get_errors tool to get full error details, or browser.clear_errors to clear them.`;
-            this._appendLog(`📋 <b>${browserErrors.length} Browser-Fehler</b> als Kontext hinzugefügt`, 'info');
+            this._appendLog(`📋 <b>${browserErrors.length} Browser-Error</b> als Kontext hinzugefügt`, 'info');
         }
 
         this._history.push({ role: 'user', content: userContent });
 
         try {
             // The streamed response is rendered code-aware.
-            this._setStatus('⏳ Antwort wird generiert…');
+            this._setStatus('⏳ Response is being generated…');
             const responseLine = this._appendCodeAware(`<span class="pa-coding-ai">🤖 <b>Coding Agent:</b></span> `, 'ai');
             await this._runAgentLoop(this._history, responseLine, tools);
 
             this._appendLog('', 'sep');
-            this._setStatus('✅ Antwort abgeschlossen');
+            this._setStatus('✅ Response completed');
             if (userLine) this._scrollToLogLine(userLine);
         } catch (err) {
             console.error('[pa-coding] error', err);
-            this._appendLog(`❌ <b>Fehler:</b> ${this._esc(err.message || String(err))}`, 'error');
-            this._setStatus('❌ Fehler');
+            this._appendLog(`❌ <b>Error:</b> ${this._esc(err.message || String(err))}`, 'error');
+            this._setStatus('❌ Error');
         } finally {
             sendBtn.disabled = false;
             this._setStatus(`${this._getSelectedToolsForAPI().length} Tools`);
@@ -716,21 +716,73 @@ ChatAddons.register({
 
         // Coding-tuned system prompt
         const sysPrompt = [
-            'Du bist ein leistungsfähiger Coding-Agent, der auf MCP-Tools zugreifen kann (Dateisystem, Git, Suche, Browser-Debugging).',
-            'Du hilfst beim Schreiben, Debuggen, Refaktorieren, Reviewen und Erklären von Code.',
-            'Wenn du ein Tool aufrufst, gib eine Tool-Call-Nachricht im Format:',
-            '```tool',
-            '{"name": "toolname", "arguments": {"...": "..."}}',
-            '```',
-            'Warte auf das Ergebnis und verarbeite es in deiner Antwort.',
-            'Nutze exakte Tool-Namen aus der Liste. Rufe Tools nur auf, wenn sie wirklich helfen.',
-            'Code-Ausgaben schreibst du in ```-Codeblöcken mit Sprachangabe (z. B. ```python).',
-            'Erkläre kurz, was du tust, und zeige Änderungen als Diff oder vollständige Dateien.',
+            'You are a powerful coding agent that can access MCP tools (file system, Git, search, browser debugging).',
+            'You help with writing, debugging, refactoring, reviewing, and explaining code.',
+            '### Core Rules',
+            '- Follow user requirements strictly and to the letter.',
+            '- Keep answers short and impersonal.',
+            '',
+            '### Role & Context',
+            'You are an expert automated coding agent. ',
+            '- **Gather context first:** Don\'t make assumptions. Use tools to read files ',
+            'and understand the workspace before acting. Don\'t give up if a task seems ',
+            'hard; explore creatively to find a solution.',
+            '- **Be efficient:** Read large file chunks to minimize tool calls. Use ',
+            'provided context/attachments if relevant. Don\'t re-read files already in ',
+            'context.',
+            '- **Infer project type:** Use languages, frameworks, and libraries inferred ',
+            'from the context to guide your changes.',
+            '',
+            '### Tool Usage',
+            '- **Direct answers:** Answer direct code sample requests without using ',
+            'tools.',
+            '- **Schema & permissions:** Follow JSON schemas strictly. Include ALL ',
+            'required properties. No need to ask permission before using a tool.',
+            '- **Parallelization:** Call independent tools in parallel. Run terminal ',
+            'commands sequentially (never in parallel).',
+            '- **Transparency:** Never mention tool names to the user (e.g., say ',
+            '"I\'ll run the command" not "I\'ll use run_in_terminal").',
+            '- **Best practices:** Use absolute paths/URIs. Use `grep_search` for file ',
+            'overviews. Use browser tools for front-end UI validation. Only use ',
+            'currently available tools.',
+            '- **Continuity:** Don\'t repeat yourself after a tool call; pick up where ',
+            'you left off.',
+            '',
+            '### Editing & Execution',
+            '- **No codeblocks:** NEVER print codeblocks for file changes or terminal ',
+            'commands. Use the respective tools directly.',
+            '- **Read before edit:** Ensure a file is in context before editing. Use ',
+            '`replace_string_in_file` (preferred) or `insert_edit_into_file`. Group ',
+            'changes by file. Never pass omitted line markers (e.g., `/* Lines 123-456 ',
+            'omitted */`) to edit tools.',
+            '- **Insert edits:** For `insert_edit_into_file`, use `// ...existing ',
+            'code...` comments to omit unchanged code. Be as concise as possible.',
+            '- **No terminal edits:** Never edit files via terminal commands unless ',
+            'explicitly asked.',
+            '- **Dependencies & UI:** Use popular external libraries when appropriate ',
+            '(install via `npm install`, etc.). Build modern, beautiful UIs from ',
+            'scratch.',
+            '- **Error fixing:** Fix new errors resulting from your edits. Max 3 ',
+            'attempts per file; if the third fails, stop and ask the user.',
+            '',
+            '### Output Formatting',
+            '- Use Markdown. Wrap filenames/symbols in backticks (e.g., ',
+            '`src/models/person.ts`).',
+            '- Use `$` for inline math and `$$` for block math (KaTeX).',
+            '- Use ```mermaid fenced code blocks for Mermaid diagrams.',
+            '',
+            '### Workspace & Skills',
+            '- This is a multi-root workspace. Apply folder-specific instructions to ',
+            'their respective folders.',
+            '- **Skills:** Use `read_file` to load detailed skill instructions when a ',
+            'task matches a skill\'s domain (e.g., use `project-setup-info-local` for ',
+            'scaffolding new projects from scratch, not for adding individual files).',
+            'Briefly explain what you are doing, and show changes as diffs or complete files.',
         ].join('\n');
 
         const msgs = [{ role: 'system', content: sysPrompt }, ...messages];
 
-        // Wird true, wenn ein API-Fehler bereits einmal ohne Tool-
+        // Wird true, wenn ein API-Error bereits einmal ohne Tool-
         // Definitionen erneut versucht wurde (verhindert Endlos-Retries).
         let retriedWithoutTools = false;
 
@@ -739,7 +791,7 @@ ChatAddons.register({
 
             let client, params, stream;
             try {
-                this._setStatus('🔗 Verbinde mit Modell…');
+                this._setStatus('🔗 Connecting to model…');
                 client = await window.createClient(provider, clientOptions);
                 params = {
                     model: model || undefined,
@@ -752,22 +804,22 @@ ChatAddons.register({
                 stream = await client.chat.completions.create(params);
             } catch (apiErr) {
                 // Der Stream-Aufruf ist fehlgeschlagen (z. B. weil der
-                // Provider Tool-Nachrichten ablehnt). Statt abzubrechen:
+                // Provider Tool-Messageen ablehnt). Statt abzubrechen:
                 // Agenten informieren und ohne Tool-Definitionen weitermachen.
-                console.error('[pa-coding] API-Fehler im Agent-Loop', apiErr);
+                console.error('[pa-coding] API-Error im Agent-Loop', apiErr);
                 const apiErrText = (apiErr && apiErr.message) ? apiErr.message : String(apiErr);
                 if (!retriedWithoutTools && tools.length > 0) {
                     retriedWithoutTools = true;
                     tools = [];
-                    const retryLine = this._appendStatus(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – erneuter Versuch ohne Tool-Definitionen…`, 'warn');
-                    msgs.push({ role: 'user', content: `[SYSTEM] Der API-Aufruf ist fehlgeschlagen (${apiErrText}). Du wirst ohne Tool-Definitionen fortgesetzt. Beantworte die Nutzerfrage möglichst vollständig und erkläre den Fehler, falls relevant.` });
+                    const retryLine = this._appendStatus(`⚠️ <b>API Error:</b> ${this._esc(apiErrText)} – retrying without tool definitions…`, 'warn');
+                    msgs.push({ role: 'user', content: `[SYSTEM] The API call failed (${apiErrText}). You will continue without tool definitions. Answer the user's question as completely as possible and explain the error if relevant.` });
                     iter--;
                     continue;
                 }
-                const errLine = this._appendStatus(`⚠️ <b>API-Fehler:</b> ${this._esc(apiErrText)} – Agent wird informiert.`, 'warn');
-                msgs.push({ role: 'user', content: `[SYSTEM] API-Fehler: ${apiErrText}. Bitte erkläre dem Nutzer kurz, was passiert ist, und fasse zusammen, was du bisher erreicht hast.` });
-                full += `\n\n[API-Fehler: ${apiErrText}]`;
-                if (streamEl && typeof streamEl._append === 'function') streamEl._append(`\n\n⚠️ API-Fehler: ${apiErrText}`);
+                const errLine = this._appendStatus(`⚠️ <b>API Error:</b> ${this._esc(apiErrText)} – Agent is being informed.`, 'warn');
+                msgs.push({ role: 'user', content: `[SYSTEM] API error: ${apiErrText}. Please briefly explain to the user what happened, and summarize what you have achieved so far.` });
+                full += `\n\n[API error: ${apiErrText}]`;
+                if (streamEl && typeof streamEl._append === 'function') streamEl._append(`\n\n⚠️ API error: ${apiErrText}`);
                 continue;
             }
 
@@ -775,7 +827,7 @@ ChatAddons.register({
             let hasToolCall = false;
             let roundText = '';
 
-            // Stream mit Fehlerbehandlung, damit ein Abbruch mittendrin
+            // Stream mit Errorbehandlung, damit ein Cancelled mittendrin
             // nicht als "Stopp" ohne Information wirkt.
             try {
                 for await (const chunk of stream) {
@@ -808,9 +860,9 @@ ChatAddons.register({
                 }
             } catch (streamErr) {
                 console.error('[pa-coding] stream error', streamErr);
-                const streamErrLine = this._appendStatus(`⚠️ <b>Stream-Fehler:</b> ${this._esc(streamErr.message || String(streamErr))}`, 'warn');
+                const streamErrLine = this._appendStatus(`⚠️ <b>Stream-Error:</b> ${this._esc(streamErr.message || String(streamErr))}`, 'warn');
                 // Wenn noch kein Text in dieser Runde kam, brich ab;
-                // ansonsten zeige das bisherige Ergebnis an.
+                // ansonsten zeige das bisherige Result an.
                 if (!full) full = roundText;
                 break;
             }
@@ -822,7 +874,7 @@ ChatAddons.register({
             if (!hasToolCall || collectedToolCalls.length === 0) {
                 const finalText = full || roundText;
                 if (!finalText) {
-                    this._appendLog('ℹ️ Agent hat keine Antwort generiert und keine Tools aufgerufen.', 'info');
+                    this._appendLog('ℹ️ Agent hat keine Response generiert und no tools aufgerufen.', 'info');
                 }
                 messages.push({ role: 'assistant', content: finalText });
                 msgs.push({ role: 'assistant', content: finalText });
@@ -830,7 +882,7 @@ ChatAddons.register({
             }
 
             const toolNames = collectedToolCalls.map(tc => tc.function && tc.function.name).filter(Boolean);
-            this._setStatus('🔧 Tool-Call: ' + toolNames.join(', '));
+            this._setStatus('🔧 Tool call: ' + toolNames.join(', '));
 
             // Build a single assistant message with ALL tool_calls,
             // then push individual tool result messages.
@@ -863,7 +915,7 @@ ChatAddons.register({
                 // Render the tool-call as its own log line so the
                 // code-aware stream renderer never wipes it.
                 const callLine = this._appendLog('', 'tool');
-                callLine.innerHTML = `🔧 <b>Tool-Call:</b> ${this._esc(tc.function.name)} <span class="pa-coding-callargs">${this._esc(JSON.stringify(args).slice(0, 200))}</span>`;
+                callLine.innerHTML = `🔧 <b>Tool call:</b> ${this._esc(tc.function.name)} <span class="pa-coding-callargs">${this._esc(JSON.stringify(args).slice(0, 200))}</span>`;
 
                 let result;
                 try {
@@ -879,14 +931,14 @@ ChatAddons.register({
                     console.error('[pa-coding] tool error', err);
                     const errText = (err && err.message) ? err.message : String(err);
                     result = {
-                        content: `[TOOL-FEHLER] ${tc.function.name} fehlgeschlagen: ${errText}. Bitte diagnostiziere den Fehler (z. B. Argumente prüfen), versuche einen anderen Ansatz oder erkläre dem Nutzer die Ursache – und fahre fort.`,
+                        content: `[TOOL-FEHLER] ${tc.function.name} fehlgeschlagen: ${errText}. Bitte diagnostiziere den Error (z. B. Argumente prüfen), versuche einen anderen Ansatz oder erkläre dem Nutzer die Ursache – und fahre fort.`,
                     };
                     const toolErrLine = this._appendStatus(`⚠️ <b>Tool ${this._esc(tc.function.name)} fehlgeschlagen</b> – Agent wird informiert und fährt fort.`, 'warn');
                 }
 
                 const resultText = this._toolResultToString(result);
                 const resultLine = this._appendLog('', 'toolresult');
-                resultLine.innerHTML = `<div class="pa-coding-result-header">↩️ Ergebnis (${resultText.length} Zeichen)</div><div class="pa-coding-result-body">${this._esc(resultText.slice(0, 2000))}</div>`;
+                resultLine.innerHTML = `<div class="pa-coding-result-header">↩️ Result (${resultText.length} characters)</div><div class="pa-coding-result-body">${this._esc(resultText.slice(0, 2000))}</div>`;
                 this._setStatus(`${this._getSelectedToolsForAPI().length} Tools`);
 
                 const toolResultMsg = {
@@ -895,14 +947,14 @@ ChatAddons.register({
                     content: resultText,
                 };
                 // WICHTIG: in `msgs` pushen (die echte API-Konversation),
-                // damit der Agent Tool-Ergebnisse/-Fehler sieht und
+                // damit der Agent Tool-Resultse/-Error sieht und
                 // informiert weitermachen kann.
                 msgs.push(toolResultMsg);
                 messages.push(toolResultMsg);
             }
             // Reset round text for next iteration
             full = '';
-            this._setStatus('🔄 Verarbeite Tool-Ergebnisse…');
+            this._setStatus('🔄 Processing tool results…');
         }
 
         messages.push({ role: 'assistant', content: full });
@@ -912,7 +964,7 @@ ChatAddons.register({
 
     _toolResultToString(result) {
         try {
-            if (result == null) return '(kein Ergebnis)';
+            if (result == null) return '(kein Result)';
             if (typeof result === 'string') return result;
             // MCP standard: { content: [{ type: 'text', text: '...' }] }
             // Extract the .text field from each content item instead of
@@ -992,7 +1044,7 @@ ChatAddons.register({
 .pa-coding-errors { color: #f87171; }
 .pa-coding-errors:hover { background: rgba(248,113,113,.12); }
 
-/* Config row (Base URL + Modell) */
+/* Config row (Base URL + Model) */
 .pa-coding-config {
     display: flex; flex-wrap: wrap; gap: 6px 14px;
     padding: 6px 8px;
