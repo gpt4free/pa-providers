@@ -109,6 +109,7 @@ ChatAddons.register({
             for (const conv of conversations) {
                 const messages = conv.messages || conv.items || [];
                 for (const msg of messages) {
+                    if (msg.role != "user") continue;
                     let content = msg.content;
                     if (Array.isArray(content)) {
                         content = content
@@ -122,7 +123,7 @@ ChatAddons.register({
                 }
             }
             texts = texts.map(t => {
-                return t.replace(/```.?\n.+?```\n|try {.+}\n?|<.+>/gs, '').trim();
+                return t.replace(/```.+?\n.+?```\n|try {.+}\n?|<.+>/gs, '').trim();
             });
             return texts;
         } catch (err) {
@@ -144,7 +145,7 @@ ChatAddons.register({
     _countPhrases(texts) {
         const counts = new Map();
         const add = (phrase) => {
-            phrase = phrase.replace(/[|*<-\s#=]+/g, ' ').trim();
+            phrase = phrase.replace(/[|*<-\s#=`~]+/g, ' ').trim();
             if (!phrase) return;
             const key = phrase.toLowerCase();
             counts.set(key, (counts.get(key) || 0) + 1);
