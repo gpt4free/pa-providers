@@ -17,7 +17,6 @@ import json
 import math
 import random
 import struct
-from pathlib import Path
 from typing import Any
 
 try:
@@ -26,9 +25,7 @@ try:
 except ImportError:
     HAS_WASMTIME = False
 
-# Default path to the WASM binary (same directory as this file)
-# Use hardcoded path since __file__ may not be available in safe execution mode
-WASM_PATH = r"C:\Users\heine\.g4f\workspace\pa-providers\wasm_signer_bg.wasm"
+WASM_PATH = "wasm_signer_bg.wasm"
 
 # Fixed canvas fingerprint data URL (same as TS implementation)
 CANVAS_DATA_URL = (
@@ -168,7 +165,7 @@ class FreeGPTSigner:
         self.instance = None
         self.memory = None
         self._wasm = None  # cached exports dict
-        self._initialized = False
+        self._initialized = True
         self._window_mock = WindowMock()
         self._document_mock = DocumentMock()
 
@@ -177,13 +174,15 @@ class FreeGPTSigner:
         if not HAS_WASMTIME:
             raise ImportError("wasmtime is required for FreeGPT WASM signing")
 
-        if not Path(wasm_path).exists():
-            raise FileNotFoundError(f"WASM file not found: {wasm_path}")
-
         self.engine = wasmtime.Engine()
 
-        with open(wasm_path, "rb") as f:
-            wasm_bytes = f.read()
+        wasm_bytes = None
+
+        try:
+            with open(wasm_path, "rb") as f:
+                wasm_bytes = f.read()
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"WASM file not found: {wasm_path}") from e
 
         module = wasmtime.Module(self.engine, wasm_bytes)
         self.store = wasmtime.Store(self.engine)
@@ -477,8 +476,8 @@ class FreeGPTSigner:
         Returns the payload object (dict) or a JSON string.
         The payload contains: signature, fingerprint, client_ip, v, pow{seed_nonce, nonce, hash, difficulty}
         """
-        if not self._initialized:
-            raise RuntimeError("WASM not initialized. Call init() first.")
+        #if not self._initialized:
+        #    raise RuntimeError("WASM not initialized. Call init() first.")
 
         # Write all strings to WASM memory
         ptr0, len0 = self._write_to_memory(uuid)
@@ -529,8 +528,6 @@ _signer_init_lock = False
 
 def get_signer() -> FreeGPTSigner:
     """Get or create the singleton signer instance."""
-    global _signer
-    if _signer is None:
-        _signer = FreeGPTSigner()
-        _signer.init(WASM_PATH)
-    return _signer
+    signer = FreeGPTSigner()
+    signer.init(WASM_PATH)
+    return signer
