@@ -42,10 +42,10 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     supports_system_message = True
     supports_message_history = True
 
-    default_model = "Ling 2.6 Flash"
+    default_model = "Nemo"
     models = [
-        "Ling 2.6 Flash",
         "Nemo",
+        "Ling 2.6 Flash",
     ]
 
     @classmethod

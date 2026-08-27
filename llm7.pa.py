@@ -8,12 +8,11 @@ class Provider(OpenaiTemplate):
     url = "https://llm7.io"
     base_url = "https://api.llm7.io/v1"
     working = True
-    
-    default_model = "gpt-oss:20b"
+
+    default_model = "gpt-oss"
     models = [
-        "gpt-oss:20b",
+        "gpt-oss",
         "codestral-latest",
-        "gemini-3.1-flash-lite",
         "minimax-m2.7",
         "mistral-Nemo-Instruct-2407",
     ]
