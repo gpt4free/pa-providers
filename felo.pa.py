@@ -116,9 +116,9 @@ class Felo(AsyncGeneratorProvider, ProviderModelMixin):
                 }}
 
                 if (!window.turnstile) {{
+                    window.onloadTurnstileCallback = renderWidget;
                     const script = document.createElement("script");
-                    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-                    script.onload = renderWidget;
+                    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onloadTurnstileCallback&render=explicit";
                     document.body.appendChild(script);
                 }} else {{
                     renderWidget();
