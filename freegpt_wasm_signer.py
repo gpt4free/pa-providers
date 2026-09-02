@@ -521,11 +521,6 @@ class FreeGPTSigner:
             return result
 
 
-# Singleton instance for reuse across requests
-_signer: FreeGPTSigner | None = None
-_signer_init_lock = False
-
-
 def get_signer() -> FreeGPTSigner:
     """Get or create the singleton signer instance."""
     signer = FreeGPTSigner()
