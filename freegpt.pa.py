@@ -22,8 +22,14 @@ from __future__ import annotations
 import json
 import secrets
 import time
+import sys
 import uuid as uuid_module
+from pathlib import Path
 from typing import Any
+
+_DIR = Path(__file__).parent
+if str(_DIR) not in sys.path:
+    sys.path.insert(0, str(_DIR))
 
 from g4f.Provider.base_provider import AsyncGeneratorProvider, ProviderModelMixin
 from g4f.requests import StreamSession

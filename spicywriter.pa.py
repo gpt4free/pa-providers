@@ -42,10 +42,10 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     supports_system_message = True
     supports_message_history = True
 
-    default_model = "Ling 2.6 Flash"
+    default_model = "Nemo"
     models = [
-        "Ling 2.6 Flash",
         "Nemo",
+        "Ling 2.6 Flash",
     ]
 
     @classmethod
@@ -126,29 +126,34 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
             ),
         }
 
-        async with ClientSession(headers=headers) as session:
-            async with session.post(
-                cls.api_endpoint, json=payload, proxy=proxy
-            ) as response:
-                response.raise_for_status()
-                async for line in response.content:
-                    # Don't trim leading spaces — they're significant in SpicyWriter
-                    line = line.decode("utf-8")
-                    # Only strip trailing newline
-                    rtrimmed = line.rstrip("\r\n")
-                    if not rtrimmed.startswith("data:"):
-                        continue
-                    data = rtrimmed[5:]
-                    if data.startswith(" "):
-                        data = data[1:]
-                    if not data:
-                        continue
-                    if data.startswith("{"):
-                        try:
-                            json.loads(data)
-                        except json.JSONDecodeError:
-                            pass
-                        else:
+        for attempt in range(3):
+            async with ClientSession(headers=headers) as session:
+                async with session.post(
+                    cls.api_endpoint, json=payload, proxy=proxy
+                ) as response:
+                    response.raise_for_status()
+                    got_any = False
+                    async for line in response.content:
+                        # Don't trim leading spaces — they're significant in SpicyWriter
+                        line = line.decode("utf-8")
+                        # Only strip trailing newline
+                        rtrimmed = line.rstrip("\r\n")
+                        if not rtrimmed.startswith("data:"):
                             continue
-                    # Plain text delta — convert literal \n to newlines
-                    yield data.replace("\\n", "\n")
+                        data = rtrimmed[5:]
+                        if data.startswith(" "):
+                            data = data[1:]
+                        if not data:
+                            continue
+                        if data.startswith("{"):
+                            try:
+                                json.loads(data)
+                            except json.JSONDecodeError:
+                                pass
+                            else:
+                                continue
+                        # Plain text delta — convert literal \n to newlines
+                        got_any = True
+                        yield data.replace("\\n", "\n")
+                    if got_any:
+                        return

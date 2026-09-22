@@ -38,7 +38,7 @@ def _fetch_seed_servers() -> list[str]:
         resp = _requests.get(_SEED_URL, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-        seeds = data if isinstance(data, list) else data.get("seeds", [])
+        seeds = data if isinstance(data, list) else (data.get("servers") or data.get("seeds") or [])
         seeds = [s for s in seeds if isinstance(s, str) and s]
         return list(dict.fromkeys(seeds))
     except Exception as e:
