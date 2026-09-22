@@ -17,7 +17,6 @@ import json
 import math
 import random
 import struct
-from pathlib import Path
 from typing import Any
 
 try:
@@ -26,7 +25,7 @@ try:
 except ImportError:
     HAS_WASMTIME = False
 
-WASM_PATH = str(Path(__file__).parent / "wasm_signer_bg.wasm")
+WASM_PATH = "wasm_signer_bg.wasm"
 
 # Fixed canvas fingerprint data URL (same as TS implementation)
 CANVAS_DATA_URL = (
@@ -520,11 +519,6 @@ class FreeGPTSigner:
         else:
             # Try to convert to dict
             return result
-
-
-# Singleton instance for reuse across requests
-_signer: FreeGPTSigner | None = None
-_signer_init_lock = False
 
 
 def get_signer() -> FreeGPTSigner:
