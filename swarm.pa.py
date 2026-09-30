@@ -56,7 +56,10 @@ def _probe_server(url: str) -> tuple[str, list[str]] | None:
         resp = _requests.get(f"{url}/v1/models", timeout=_PROBE_TIMEOUT, verify=False)
         resp.raise_for_status()
         data = resp.json().get("data", [])
-        models = [m.get("id", "") for m in data if m.get("id")]
+        models = [m.get("id") for m in data if m.get("id")]
+        nots = [m for m in models if m.startswith("sysverify-") or m.startswith("cve-")]
+        if nots:
+            return None
         if models:
             return url, models
     except Exception:
