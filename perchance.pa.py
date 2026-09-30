@@ -1,35 +1,26 @@
 from __future__ import annotations
 
-import os
-import sys
 import json
 import time
 import random
 import asyncio
 import urllib.request
 import urllib.parse
-from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional
 
 from g4f.Provider.base_provider import AsyncGeneratorProvider, ProviderModelMixin
 from g4f.Provider.helper import format_prompt, format_media_prompt
 from g4f.providers.response import ImageResponse
+from g4f.providers.cache import FileStorage
 from g4f.requests.cdp import CDPSession
 from g4f.requests import StreamSession
 from g4f.typing import AsyncResult, Messages
 from g4f import debug
 
 
-# Candidate token storage files
-CANDIDATE_TOKEN_FILES = [
-    Path.home() / ".config" / "g4f" / "perchance_token.json",
-    Path.home() / ".local" / "share" / "g4f" / "perchance_token.json",
-]
-
-CANDIDATE_IMAGE_TOKEN_FILES = [
-    Path.home() / ".config" / "g4f" / "perchance_image_token.json",
-    Path.home() / ".local" / "share" / "g4f" / "perchance_image_token.json",
-]
+# FileStorage cache keys for verified userKeys
+TOKEN_CACHE_KEY = "perchance/userKey"
+IMAGE_TOKEN_CACHE_KEY = "perchance/imageUserKey"
 
 
 def check_key_status(user_key: str, domain: str = "text-generation.perchance.org") -> bool:
@@ -81,32 +72,30 @@ class Perchance(AsyncGeneratorProvider, ProviderModelMixin):
 
     @classmethod
     def _load_cached_token(cls, is_image: bool = False) -> Optional[str]:
-        candidates = CANDIDATE_IMAGE_TOKEN_FILES if is_image else CANDIDATE_TOKEN_FILES
+        cache_key = IMAGE_TOKEN_CACHE_KEY if is_image else TOKEN_CACHE_KEY
         domain = "image-generation.perchance.org" if is_image else "text-generation.perchance.org"
-        for p in candidates:
-            if p.exists():
-                try:
-                    with open(p, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        k = data.get("userKey")
-                        if k and len(k) >= 16:
-                            if check_key_status(k, domain):
-                                return k
-                except Exception:
-                    pass
+        try:
+            data = FileStorage().get(cache_key)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            k = data.get("userKey")
+            if k and len(k) >= 16 and check_key_status(k, domain):
+                return k
+        elif isinstance(data, str) and len(data) >= 16:
+            if check_key_status(data, domain):
+                return data
         return None
 
     @classmethod
     def _save_cached_token(cls, user_key: str, is_image: bool = False):
-        target = CANDIDATE_IMAGE_TOKEN_FILES[0] if is_image else CANDIDATE_TOKEN_FILES[0]
+        cache_key = IMAGE_TOKEN_CACHE_KEY if is_image else TOKEN_CACHE_KEY
         try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with open(target, "w", encoding="utf-8") as f:
-                json.dump({
-                    "userKey": user_key,
-                    "timestamp": time.time(),
-                    "domain": "image-generation.perchance.org" if is_image else "text-generation.perchance.org"
-                }, f)
+            FileStorage().set(cache_key, {
+                "userKey": user_key,
+                "timestamp": time.time(),
+                "domain": "image-generation.perchance.org" if is_image else "text-generation.perchance.org"
+            })
         except Exception as e:
             debug.log(f"Failed to save Perchance token cache: {e}")
 
@@ -199,7 +188,7 @@ class Perchance(AsyncGeneratorProvider, ProviderModelMixin):
 
     @classmethod
     async def get_valid_user_key(cls, is_image: bool = False, force_refresh: bool = False) -> str:
-        """Get verified userKey from memory, cache file, or fresh CDP / xvfb-run run."""
+        """Get verified userKey from memory, FileStorage cache, or fresh CDP run."""
         async with cls._lock:
             domain = "image-generation.perchance.org" if is_image else "text-generation.perchance.org"
 
@@ -209,7 +198,7 @@ class Perchance(AsyncGeneratorProvider, ProviderModelMixin):
                 if key and check_key_status(key, domain):
                     return key
 
-                # 2. Disk cache check
+                # 2. FileStorage cache check
                 cached = cls._load_cached_token(is_image)
                 if cached:
                     if is_image:
@@ -218,43 +207,7 @@ class Perchance(AsyncGeneratorProvider, ProviderModelMixin):
                         cls._user_key = cached
                     return cached
 
-            # 3. Obtain via xvfb-run token_receiver if available on Linux
-            import shutil
-            receiver_candidates = [
-                Path(__file__).parent / "token_receiver.py",
-            ]
-            receiver_script = next((p for p in receiver_candidates if p.exists()), None)
-            has_xvfb = shutil.which("xvfb-run") is not None
-
-            if receiver_script and has_xvfb:
-                target_out = str(CANDIDATE_IMAGE_TOKEN_FILES[0] if is_image else CANDIDATE_TOKEN_FILES[0])
-                if is_image:
-                    target_url = "https://image-generation.perchance.org/embed#%7B%22prompt%22%3A%22a%22%2C%22resolution%22%3A%22512x512%22%2C%22guidanceScale%22%3A7%7D"
-                else:
-                    target_url = "https://text-generation.perchance.org/embed?thread=0"
-                cmd = ["xvfb-run", "-a", sys.executable, str(receiver_script), "--url", target_url, "--headful", "--out", target_out, "--timeout", "35"]
-                try:
-                    debug.log(f"Launching headless token receiver via xvfb-run for {domain}...")
-                    proc = await asyncio.create_subprocess_exec(
-                        *cmd,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE
-                    )
-                    await proc.communicate()
-                    if os.path.exists(target_out):
-                        with open(target_out, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                            k = data.get("userKey")
-                            if k and len(k) >= 16 and check_key_status(k, domain):
-                                if is_image:
-                                    cls._image_user_key = k
-                                else:
-                                    cls._user_key = k
-                                return k
-                except Exception as e:
-                    debug.log(f"xvfb-run token receiver fallback error: {e}")
-
-            # 4. Universal Cross-Platform CDP fallback
+            # 3. Universal Cross-Platform CDP fallback
             fresh_key = await cls._obtain_token_via_cdp(is_image)
             if is_image:
                 cls._image_user_key = fresh_key
