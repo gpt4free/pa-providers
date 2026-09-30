@@ -50,6 +50,10 @@ def _fetch_seed_servers() -> list[str]:
 # Discovery helpers
 # ---------------------------------------------------------------------------
 
+def _filter_models(models: list[str]) -> list[str]:
+    """Filter out disallowed models."""
+    return [m for m in models if not (m.startswith("rev_") or m.startswith("sysverify-") or m.startswith("cve-") or m.startswith("198.") or m.startswith("178.") or m.startswith("model-b") or "/trav/" in m or "/x/" in m or "/attacker/" in m)]
+
 def _probe_server(url: str) -> tuple[str, list[str]] | None:
     """Probe one server's /v1/models. Returns (url, [model_id, ...]) or None."""
     try:
@@ -57,11 +61,10 @@ def _probe_server(url: str) -> tuple[str, list[str]] | None:
         resp.raise_for_status()
         data = resp.json().get("data", [])
         models = [m.get("id") for m in data if m.get("id")]
-        nots = [m for m in models if m.startswith("sysverify-") or m.startswith("cve-") or m.startswith("198.")]
-        if nots:
+        filtered = _filter_models(models)
+        if not filtered:
             return None
-        if models:
-            return url, models
+        return url, filtered
     except Exception:
         pass
     return None
@@ -164,11 +167,11 @@ class Provider(OpenaiTemplate):
 
         cls.model_to_servers = model_to_servers
         cls.models_count = {m: len(servers) for m, servers in model_to_servers.items()}
-        cls.models = sorted(
+        cls.models = _filter_models(sorted(
             model_to_servers.keys(),
             key=lambda m: cls.models_count[m],
             reverse=True,
-        )
+        ))
         cls.image_models = [
             m for m in cls.models
             if any(kw in m.lower() for kw in ("flux", "sdxl", "diffusion", "imagen", "dall-e"))
