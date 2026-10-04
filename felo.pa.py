@@ -5,11 +5,11 @@ import time
 import uuid
 import asyncio
 import urllib.request
-from pathlib import Path
 from typing import Any, Optional
 
 from g4f.Provider.base_provider import AsyncGeneratorProvider, ProviderModelMixin
 from g4f.providers.response import Sources
+from g4f.providers.cache import FileStorage
 from g4f.requests import StreamSession
 from g4f.requests.raise_for_status import raise_for_status
 from g4f.requests.cdp import CDPSession
@@ -17,12 +17,10 @@ from g4f.typing import AsyncResult, Messages
 from g4f import debug
 
 
-CANDIDATE_TOKEN_FILES = [
-    Path.home() / ".config" / "g4f" / "felo_cf_token.json",
-    Path.home() / ".local" / "share" / "g4f" / "felo_cf_token.json",
-]
-
 SITEKEY = "0x4AAAAAAAylbZ7VusOzg5FJ"
+
+TOKEN_STORAGE_KEY = "felo/cf_token"
+_token_storage = FileStorage()
 
 
 class Felo(AsyncGeneratorProvider, ProviderModelMixin):
@@ -53,29 +51,21 @@ class Felo(AsyncGeneratorProvider, ProviderModelMixin):
 
     @classmethod
     def _load_cached_token(cls) -> Optional[str]:
-        for p in CANDIDATE_TOKEN_FILES:
-            if p.exists():
-                try:
-                    with open(p, "r", encoding="utf-8") as f:
-                        data = json.load(f)
-                        token = data.get("cf_token")
-                        ts = data.get("timestamp", 0)
-                        # cf_token is valid for ~1 hour, keep 45 min margin
-                        if token and (time.time() - ts < 45 * 60):
-                            return token
-                except Exception:
-                    pass
+        data = _token_storage.get(TOKEN_STORAGE_KEY)
+        if isinstance(data, dict):
+            token = data.get("cf_token")
+            ts = data.get("timestamp", 0)
+            # cf_token is valid for ~1 hour, keep 45 min margin
+            if token and (time.time() - ts < 45 * 60):
+                return token
         return None
 
     @classmethod
     def _save_cached_token(cls, token: str):
-        target = CANDIDATE_TOKEN_FILES[0]
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with open(target, "w", encoding="utf-8") as f:
-                json.dump({"cf_token": token, "timestamp": time.time()}, f)
-        except Exception as e:
-            debug.log(f"Failed to save Felo cf_token: {e}")
+        # FileStorage.set handles write errors internally
+        _token_storage.set(
+            TOKEN_STORAGE_KEY, {"cf_token": token, "timestamp": time.time()}
+        )
 
     @classmethod
     async def _obtain_cf_token_via_cdp(cls, timeout: int = 30) -> str:
