@@ -183,9 +183,6 @@ class Provider(OpenaiTemplate):
 
     @classmethod
     def get_models(cls, api_key: str = None, base_url: str = None, **kwargs) -> list[str]:
-        if not cls.models or (time.time() - cls._cache_time) > _CACHE_TTL:
-            cls._refresh()
-        # Last-resort: pull model list from worker's /v1/models
         if not cls.models:
             try:
                 resp = _requests.get(f"{cls.base_url}/models", timeout=10)
@@ -208,10 +205,10 @@ class Provider(OpenaiTemplate):
         base_url: str = None,
         **kwargs: Any,
     ) -> AsyncResult:
-        if not cls.models:
-            cls.get_models()
+        if not cls.models or (time.time() - cls._cache_time) > _CACHE_TTL:
+            cls._refresh()
 
-        if not model or model == "default":
+        if not model or model == "auto":
             model = cls.default_model
 
         # Resolve aliases
