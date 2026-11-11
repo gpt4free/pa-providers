@@ -73,7 +73,8 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
         }
         for key in ("max_tokens", "temperature", "top_p", "stop", "seed"):
             if key in kwargs and kwargs[key] is not None:
-                payload[key] = kwargs[key]
+                value = kwargs[key]
+                payload[key] = max(16, int(value)) if key == "max_tokens" else value
 
         headers = {
             "accept": "text/event-stream",
