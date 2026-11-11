@@ -21,7 +21,7 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
     supports_system_message = True
     supports_message_history = True
 
-    default_model = "koboldcpp/gemma-4-31B-it"
+    default_model = "koboldcpp/Llama-3.2-1B-Instruct"
     models = [default_model]
     _models_checked_at = 0.0
 
@@ -34,18 +34,24 @@ class Provider(AsyncGeneratorProvider, ProviderModelMixin):
             response = requests.get(f"{cls.base_url}/models", timeout=5)
             response.raise_for_status()
             data = response.json().get("data", [])
-            models = [
-                entry["id"]
+            entries = [
+                entry
                 for entry in data
                 if entry.get("id")
                 and "text" in entry.get("architecture", {}).get(
                     "input_modalities", ["text"]
                 )
             ]
+            entries.sort(
+                key=lambda entry: (
+                    entry.get("x_horde", {}).get("queued", float("inf")),
+                    -entry.get("x_horde", {}).get("workers", 0),
+                )
+            )
+            models = [entry["id"] for entry in entries]
             if models:
                 cls.models = models
-                if cls.default_model not in models:
-                    cls.default_model = models[0]
+                cls.default_model = models[0]
         except (requests.RequestException, ValueError, TypeError):
             pass
 
